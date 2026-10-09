@@ -35,6 +35,7 @@ class ChototSpider(BaseSpider):
 
     def parse(self, response):
         links = list(dict.fromkeys(response.css("a::attr(href)").re(AD_LINK_REGEX)))
+        links = self.limit_links(response, links)
         page = response.meta.get("cfg", {}).get("page")
 
         if not links:

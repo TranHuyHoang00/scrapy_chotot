@@ -5,6 +5,7 @@ pagination:
   param: page
   start: 1
   max_pages: 60
+  max_items_per_page: 100
 
 settings:
   DOWNLOAD_DELAY: 1.5

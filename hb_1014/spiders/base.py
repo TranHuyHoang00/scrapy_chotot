@@ -31,7 +31,16 @@ class BaseSpider(RedisSpider):
             meta={"cfg": payload.get("meta", {})},
             dont_filter=True,
         )
-
+    def limit_links(self, response, links):
+        limit = int(response.meta.get("cfg", {}).get("max_items_per_page") or 0)
+        if limit and len(links) > limit:
+            self.logger.info(
+                "Trang %s: lấy %d/%d link theo max_items_per_page",
+                response.meta.get("cfg", {}).get("page"), limit, len(links),
+            )
+            return links[:limit]
+        return links
+        
     def follow_detail(self, response, url):
         return response.follow(
             url,

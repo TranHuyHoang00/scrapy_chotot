@@ -22,7 +22,7 @@ import redis
 from hb_1014.utils.config_loader import ConfigError, load_categories 
 from hb_1014.utils.redis_client import get_redis 
 
-META_FIELDS = ("source", "group", "vertical", "category", "category_name")
+META_FIELDS = ("source", "group", "vertical", "category", "category_name", "max_items_per_page")
 
 
 def build_page_url(cat, page):

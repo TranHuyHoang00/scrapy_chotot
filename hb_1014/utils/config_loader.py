@@ -79,6 +79,11 @@ def load_categories(spider_name, groups=None):
                 or group_cfg.get("max_pages")
                 or pagination.get("max_pages", 1)
             )
+            max_items_per_page = (
+                cat.get("max_items_per_page")
+                or group_cfg.get("max_items_per_page")
+                or pagination.get("max_items_per_page", 0)
+            )
 
             result.append({
                 "source": common["source"],
@@ -91,6 +96,7 @@ def load_categories(spider_name, groups=None):
                 "page_param": pagination.get("param", "page"),
                 "start_page": pagination.get("start", 1),
                 "max_pages": int(max_pages),
+                "max_items_per_page": int(max_items_per_page),
             })
 
     return result

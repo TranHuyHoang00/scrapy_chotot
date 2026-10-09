@@ -84,3 +84,13 @@ KAFKA_TOPIC = os.getenv("KAFKA_TOPIC")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 FEED_EXPORT_ENCODING = "utf-8"
+
+LOG_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+LOG_DATEFORMAT = "%Y-%m-%d %H:%M:%S"
+LOG_DIR = str(BASE_DIR / "logs")
+
+EXTENSIONS = {
+    "hb_1014.extensions.CrawlMonitor": 500,
+}
+MONITOR_ENABLED = True
+MONITOR_PROGRESS_EVERY = env_int("MONITOR_PROGRESS_EVERY", 50)
