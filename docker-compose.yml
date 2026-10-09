@@ -1,7 +1,9 @@
+name: hb1014
+
 services:
   redis:
     image: redis:7-alpine
-    container_name: tdn_redis
+    container_name: hb1014_redis
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
@@ -16,7 +18,7 @@ services:
 
   kafka:
     image: apache/kafka-native:4.0.0
-    container_name: tdn_kafka
+    container_name: hb1014_kafka
     ports:
       - "9092:9092"
     environment:
@@ -41,7 +43,7 @@ services:
 
   kafka-ui:
     image: kafbat/kafka-ui:latest
-    container_name: tdn_kafka_ui
+    container_name: hb1014_kafka_ui
     ports:
       - "8080:8080"
     environment:

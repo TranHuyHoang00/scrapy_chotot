@@ -1,4 +1,4 @@
-# Scrapy settings for thongtindoanhnghiep project
+# Scrapy settings for hb_1014 project
 #
 # For simplicity, this file contains only settings considered important or
 # commonly used. You can find more settings consulting the documentation:
@@ -7,16 +7,16 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
-BOT_NAME = "thongtindoanhnghiep"
+BOT_NAME = "hb_1014"
 
-SPIDER_MODULES = ["thongtindoanhnghiep.spiders"]
-NEWSPIDER_MODULE = "thongtindoanhnghiep.spiders"
+SPIDER_MODULES = ["hb_1014.spiders"]
+NEWSPIDER_MODULE = "hb_1014.spiders"
 
 ADDONS = {}
 
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
-#USER_AGENT = "thongtindoanhnghiep (+http://www.yourdomain.com)"
+#USER_AGENT = "hb_1014 (+http://www.yourdomain.com)"
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -41,13 +41,13 @@ DOWNLOAD_DELAY = 1
 # Enable or disable spider middlewares
 # See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 #SPIDER_MIDDLEWARES = {
-#    "thongtindoanhnghiep.middlewares.ThongtindoanhnghiepSpiderMiddleware": 543,
+#    "hb_1014.middlewares.Hb1014SpiderMiddleware": 543,
 #}
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #DOWNLOADER_MIDDLEWARES = {
-#    "thongtindoanhnghiep.middlewares.ThongtindoanhnghiepDownloaderMiddleware": 543,
+#    "hb_1014.middlewares.Hb1014DownloaderMiddleware": 543,
 #}
 
 # Enable or disable extensions
@@ -59,7 +59,7 @@ DOWNLOAD_DELAY = 1
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 #ITEM_PIPELINES = {
-#    "thongtindoanhnghiep.pipelines.ThongtindoanhnghiepPipeline": 300,
+#    "hb_1014.pipelines.Hb1014Pipeline": 300,
 #}
 
 # Enable and configure the AutoThrottle extension (disabled by default)
