@@ -2,3 +2,4 @@ scrapy
 scrapy-redis
 redis
 kafka-python
+python-dotenv

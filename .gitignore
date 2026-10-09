@@ -1,15 +1,9 @@
-# Virtual environment
 venv/
-.venv/
-env/
-
-# Python cache
 __pycache__/
-*.py[cod]
-
-# IDE / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+*.pyc
 .env
+output/*
+logs/*
+!output/.gitkeep
+!logs/.gitkeep
+get-pip.py
