@@ -16,3 +16,9 @@ categories:
     path: /mua-ban-may-tinh-bang
     max_items_per_page: 1 # 0 là lấy hết
     enabled: true
+
+  - category: mua-ban-laptop
+    name: Laptop
+    path: /mua-ban-laptop
+    max_items_per_page: 1 # 0 là lấy hết
+    enabled: true

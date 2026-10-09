@@ -56,3 +56,16 @@ class RedisDedupPipeline:
 
         adapter = ItemAdapter(item)
         source = adapter.get("source") or self._spider_name()
+        key = dedup_key(source)
+        ad_id = str(adapter["ad_id"])
+
+        new_fp = fingerprint(adapter)
+        old_fp = self.redis.hget(key, ad_id)
+
+        if old_fp == new_fp or (old_fp and not self.allow_updates):
+            self._inc("duplicate")
+            raise DropItem(f"[duplicate] {source}:{ad_id}")
+
+        self.redis.hset(key, ad_id, new_fp)
+        self._inc("updated" if old_fp else "new")
+        return item
