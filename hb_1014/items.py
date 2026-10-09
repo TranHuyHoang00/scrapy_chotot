@@ -2,37 +2,25 @@ import scrapy
 
 
 class AdItem(scrapy.Item):
+    ad_id = scrapy.Field()
+    url = scrapy.Field()
+    source = scrapy.Field()
 
-    # ===== Định danh =====
-    ad_id = scrapy.Field()          # ID tin lấy từ URL, khóa chống trùng
-    url = scrapy.Field()            # link chi tiết, đã bỏ phần #px=...
-    source = scrapy.Field()         # cố định "chotot"
+    vertical = scrapy.Field()
+    category = scrapy.Field()
+    category_name = scrapy.Field()
 
-    # ===== Danh mục =====
-    category = scrapy.Field()       # mã danh mục, vd: "mua-ban-dien-thoai"
-    category_name = scrapy.Field()  # tên hiển thị, vd: "Điện thoại"
-
-    # ===== Nội dung tin =====
     title = scrapy.Field()
     description = scrapy.Field()
-    price = scrapy.Field()          # giá dạng số (VND)
-    price_text = scrapy.Field()     # giá dạng chữ gốc
+    price = scrapy.Field()
+    price_text = scrapy.Field()
 
-    # ===== Thông số chung =====
-    brand = scrapy.Field()          # hãng
-    model = scrapy.Field()          # dòng máy
-    condition = scrapy.Field()      # tình trạng
+    specs = scrapy.Field()
 
-    # ===== Thông số riêng theo danh mục =====
-    specs = scrapy.Field()          # dict, vd: {"storage": "128GB", "ram": "8GB"}
-
-    # ===== Vị trí =====
     city = scrapy.Field()
     district = scrapy.Field()
 
-    # ===== Thời gian và hình ảnh =====
     posted_at = scrapy.Field()
     image_urls = scrapy.Field()
 
-    # ===== Thông tin thu thập =====
     crawled_at = scrapy.Field()

@@ -1,0 +1,57 @@
+import json
+from datetime import datetime, timezone
+
+import scrapy
+from scrapy_redis.spiders import RedisSpider
+
+from hb_1014.items import AdItem
+from hb_1014.utils.config_loader import load_spider_settings
+
+CATEGORY_FIELDS = ("vertical", "category", "category_name")
+
+
+class BaseSpider(RedisSpider):
+    name = None
+
+    @classmethod
+    def update_settings(cls, settings):
+        super().update_settings(settings)
+        if cls.name:
+            settings.setdict(load_spider_settings(cls.name), priority="spider")
+
+    def make_request_from_data(self, data):
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        payload = json.loads(data)
+
+        return scrapy.Request(
+            url=payload["url"],
+            callback=self.parse,
+            meta={"cfg": payload.get("meta", {})},
+            dont_filter=True,
+        )
+
+    def follow_detail(self, response, url):
+        return response.follow(
+            url,
+            callback=self.parse_detail,
+            meta={"cfg": response.meta.get("cfg", {})},
+        )
+
+    def new_item(self, response):
+        cfg = response.meta.get("cfg", {})
+        item = AdItem()
+        item["source"] = cfg.get("source", self.name)
+        item["url"] = response.url
+        item["crawled_at"] = datetime.now(timezone.utc).isoformat()
+        for field in CATEGORY_FIELDS:
+            if cfg.get(field):
+                item[field] = cfg[field]
+        return item
+
+
+    def parse(self, response):
+        raise NotImplementedError(f"{self.name}: chưa viết parse()")
+
+    def parse_detail(self, response):
+        raise NotImplementedError(f"{self.name}: chưa viết parse_detail()")
