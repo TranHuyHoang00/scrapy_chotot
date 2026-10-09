@@ -6,6 +6,7 @@ from scrapy_redis.spiders import RedisSpider
 
 from hb_1014.items import AdItem
 from hb_1014.utils.config_loader import load_spider_settings
+from hb_1014.utils.normalizer import to_iso_utc
 
 CATEGORY_FIELDS = ("vertical", "category", "category_name")
 
@@ -43,7 +44,7 @@ class BaseSpider(RedisSpider):
         item = AdItem()
         item["source"] = cfg.get("source", self.name)
         item["url"] = response.url
-        item["crawled_at"] = datetime.now(timezone.utc).isoformat()
+        item["crawled_at"] = to_iso_utc(datetime.now(timezone.utc))
         for field in CATEGORY_FIELDS:
             if cfg.get(field):
                 item[field] = cfg[field]
