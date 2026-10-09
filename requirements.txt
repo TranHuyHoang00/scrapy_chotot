@@ -1,0 +1,4 @@
+scrapy
+scrapy-redis
+redis
+kafka-python
