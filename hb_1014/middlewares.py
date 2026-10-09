@@ -18,7 +18,7 @@ class RandomUserAgentMiddleware:
     def from_crawler(cls, crawler):
         return cls(crawler.settings.getlist("USER_AGENT_LIST"))
 
-    def process_request(self, request, spider):
+    def process_request(self, request):
         request.headers["User-Agent"] = random.choice(self.user_agents)
         return None
 
@@ -37,7 +37,7 @@ class ProxyMiddleware:
             stats=crawler.stats,
         )
 
-    def process_request(self, request, spider):
+    def process_request(self, request):
         if self.enabled and "proxy" not in request.meta:
             request.meta["proxy"] = self.proxy
             if self.stats:

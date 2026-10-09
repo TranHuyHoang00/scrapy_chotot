@@ -59,11 +59,11 @@ class KafkaPipeline:
         if self.stats:
             self.stats.inc_value(f"kafka/{name}")
 
-    def open_spider(self, spider):
+    def open_spider(self):
         self.producer = get_producer()
         logger.info("Kafka topic: %s", self.topic)
 
-    def process_item(self, item, spider):
+    def process_item(self, item):
         if self.producer is None:
             self.producer = get_producer()
 
@@ -82,7 +82,7 @@ class KafkaPipeline:
         unmark(source, ad_id)
         logger.error("Gui Kafka that bai %s:%s - %s", source, ad_id, exc)
 
-    def close_spider(self, spider):
+    def close_spider(self):
         close_producer()
         self.producer = None
         logger.info("Da dong Kafka producer")

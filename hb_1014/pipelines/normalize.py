@@ -56,7 +56,7 @@ def normalize_images(urls):
 
 
 class NormalizePipeline:
-    def process_item(self, item, spider):
+    def process_item(self, item):
         adapter = ItemAdapter(item)
 
         for field in TEXT_FIELDS:

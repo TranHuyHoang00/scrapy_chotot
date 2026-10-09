@@ -24,9 +24,10 @@ def unmark(source, ad_id):
 
 
 class RedisDedupPipeline:
-    def __init__(self, allow_updates=True, stats=None):
+    def __init__(self, allow_updates=True, stats=None, crawler=None):
         self.allow_updates = allow_updates
         self.stats = stats
+        self.crawler = crawler
         self.redis = None
 
     @classmethod
@@ -34,32 +35,24 @@ class RedisDedupPipeline:
         return cls(
             allow_updates=crawler.settings.getbool("DEDUP_ALLOW_UPDATES", True),
             stats=crawler.stats,
+            crawler=crawler,
         )
 
-    def open_spider(self, spider):
+    def open_spider(self):
         self.redis = get_redis()
         self.redis.ping()
+
+    def _spider_name(self):
+        spider = getattr(self.crawler, "spider", None)
+        return getattr(spider, "name", "unknown")
 
     def _inc(self, name):
         if self.stats:
             self.stats.inc_value(f"dedup/{name}")
 
-    def process_item(self, item, spider):
+    def process_item(self, item):
         if self.redis is None:
             self.redis = get_redis()
 
         adapter = ItemAdapter(item)
-        source = adapter.get("source") or getattr(spider, "name", "unknown")
-        key = dedup_key(source)
-        ad_id = str(adapter["ad_id"])
-
-        new_fp = fingerprint(adapter)
-        old_fp = self.redis.hget(key, ad_id)
-
-        if old_fp == new_fp or (old_fp and not self.allow_updates):
-            self._inc("duplicate")
-            raise DropItem(f"[duplicate] {source}:{ad_id}")
-
-        self.redis.hset(key, ad_id, new_fp)
-        self._inc("updated" if old_fp else "new")
-        return item
+        source = adapter.get("source") or self._spider_name()

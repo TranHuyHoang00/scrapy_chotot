@@ -26,7 +26,7 @@ class ValidationPipeline:
             self.stats.inc_value("validation/dropped")
         raise DropItem(f"[{reason}] {adapter.get('url')}")
 
-    def process_item(self, item, spider):
+    def process_item(self, item):
         adapter = ItemAdapter(item)
 
         missing = [f for f in self.required_fields if adapter.get(f) in (None, "", [], {})]
