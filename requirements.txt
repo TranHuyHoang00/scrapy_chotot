@@ -3,3 +3,4 @@ scrapy-redis
 redis
 kafka-python
 python-dotenv
+pyyaml

@@ -1,0 +1,11 @@
+source: chotot
+base_url: https://www.chotot.com
+
+pagination:
+  param: page
+  start: 1
+  max_pages: 60
+
+settings:
+  DOWNLOAD_DELAY: 1.5
+  CONCURRENT_REQUESTS_PER_DOMAIN: 4

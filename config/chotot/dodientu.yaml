@@ -1,0 +1,16 @@
+group: dodientu
+vertical: electronics
+group_name: Đồ điện tử
+
+# max_pages: 60        # bỏ comment để ghi đè số trang cho cả nhóm
+
+categories:
+  - category: mua-ban-dien-thoai
+    name: Điện thoại
+    path: /mua-ban-dien-thoai
+    enabled: true
+
+  - category: mua-ban-may-tinh-bang
+    name: Máy tính bảng
+    path: /mua-ban-may-tinh-bang
+    enabled: false
