@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 import scrapy
 from scrapy_redis.spiders import RedisSpider
 
-from hb_1014.items import AdItem
-from hb_1014.utils.config_loader import load_spider_settings
-from hb_1014.utils.normalizer import to_iso_utc
+from chotot.items import AdItem
+from chotot.utils.config_loader import load_spider_settings
+from chotot.utils.normalizer import to_iso_utc
 
 CATEGORY_FIELDS = ("vertical", "category", "category_name")
 

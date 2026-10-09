@@ -2,7 +2,7 @@ from datetime import datetime
 
 from itemadapter import ItemAdapter
 
-from hb_1014.utils.normalizer import (
+from chotot.utils.normalizer import (
     VN_TZ,
     clean_multiline,
     clean_text,

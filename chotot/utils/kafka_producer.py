@@ -24,7 +24,7 @@ def kafka_servers():
 
 
 def default_topic():
-    return os.getenv("KAFKA_TOPIC", "hb1014.chotot.ads")
+    return os.getenv("KAFKA_TOPIC", "chotot.ads")
 
 
 def _serialize_value(value):

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from hb_1014.utils.redis_client import redis_url
+from chotot.utils.redis_client import redis_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -24,9 +24,9 @@ def env_float(name, default):
     return float(os.getenv(name, default))
 
 
-BOT_NAME = "hb_1014"
-SPIDER_MODULES = ["hb_1014.spiders"]
-NEWSPIDER_MODULE = "hb_1014.spiders"
+BOT_NAME = "chotot"
+SPIDER_MODULES = ["chotot.spiders"]
+NEWSPIDER_MODULE = "chotot.spiders"
 
 # ROBOTSTXT_OBEY = True
 ROBOTSTXT_OBEY = False
@@ -55,15 +55,15 @@ CRAWL_PROXY = os.getenv("CRAWL_PROXY")
 
 DOWNLOADER_MIDDLEWARES = {
     "scrapy.downloadermiddlewares.useragent.UserAgentMiddleware": None,
-    "hb_1014.middlewares.RandomUserAgentMiddleware": 400,
-    "hb_1014.middlewares.ProxyMiddleware": 410,
+    "chotot.middlewares.RandomUserAgentMiddleware": 400,
+    "chotot.middlewares.ProxyMiddleware": 410,
 }
 
 ITEM_PIPELINES = {
-    "hb_1014.pipelines.normalize.NormalizePipeline": 100,
-    "hb_1014.pipelines.validation.ValidationPipeline": 200,
-    "hb_1014.pipelines.redis_dedup.RedisDedupPipeline": 300,
-    "hb_1014.pipelines.kafka_pipeline.KafkaPipeline": 400,
+    "chotot.pipelines.normalize.NormalizePipeline": 100,
+    "chotot.pipelines.validation.ValidationPipeline": 200,
+    "chotot.pipelines.redis_dedup.RedisDedupPipeline": 300,
+    "chotot.pipelines.kafka_pipeline.KafkaPipeline": 400,
 }
 
 VALIDATION_REQUIRED_FIELDS = ["ad_id", "url", "vertical", "category", "title", "price"]
@@ -90,7 +90,7 @@ LOG_DATEFORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_DIR = str(BASE_DIR / "logs")
 
 EXTENSIONS = {
-    "hb_1014.extensions.CrawlMonitor": 500,
+    "chotot.extensions.CrawlMonitor": 500,
 }
 MONITOR_ENABLED = True
 MONITOR_PROGRESS_EVERY = env_int("MONITOR_PROGRESS_EVERY", 50)

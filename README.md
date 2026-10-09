@@ -1,4 +1,4 @@
-# scrapy_hb_1014
+# scrapy_chotot
 
 Hệ thống thu thập dữ liệu bằng Scrapy, dùng Redis để quản lý hàng đợi và chống trùng, đẩy dữ liệu đã chuẩn hóa sang Kafka.
 
@@ -21,8 +21,8 @@ export PROXY=http://172.20.148.40:3128
 ## 1. Clone dự án
 
 ```bash
-git -c http.proxy=$PROXY clone https://github.com/TranHuyHoang00/scrapy_hb_1014.git
-cd scrapy_hb_1014
+git -c http.proxy=$PROXY clone https://github.com/TranHuyHoang00/scrapy_chotot.git
+cd scrapy_chotot
 git config http.proxy $PROXY
 ```
 
@@ -81,22 +81,22 @@ docker run --rm hello-world
 Kafka chạy bằng user uid 1000, cần cấp quyền cho volume trước lần chạy đầu:
 
 ```bash
-docker volume create hb1014_kafka_data
-docker run --rm -v hb1014_kafka_data:/data redis:7-alpine chown -R 1000:1000 /data
+docker volume create chotot_kafka_data
+docker run --rm -v chotot_kafka_data:/data redis:7-alpine chown -R 1000:1000 /data
 docker compose up -d
 docker compose ps
 ```
 
-Cả 3 container `hb1014_redis`, `hb1014_kafka`, `hb1014_kafka_ui` phải ở trạng thái `Up`.
+Cả 3 container `chotot_redis`, `chotot_kafka`, `chotot_kafka_ui` phải ở trạng thái `Up`.
 
-Kafka UI: http://localhost:8080. Topic `hb1014.chotot.ads` tự tạo khi có message đầu tiên, hoặc tạo tay trên Kafka UI (3 partitions, replication factor 1).
+Kafka UI: http://localhost:8080. Topic `chotot.ads` tự tạo khi có message đầu tiên, hoặc tạo tay trên Kafka UI (3 partitions, replication factor 1).
 
 ## 6. Kiểm tra kết nối
 
 ```bash
 python -c "
-from hb_1014.utils.redis_client import check_connection as r
-from hb_1014.utils.kafka_producer import check_connection as k, close_producer
+from chotot.utils.redis_client import check_connection as r
+from chotot.utils.kafka_producer import check_connection as k, close_producer
 print('Redis:', r()); print('Kafka:', k()); close_producer()
 "
 ```
@@ -124,10 +124,10 @@ Log mỗi lần chạy lưu tại `logs/chotot_<thời gian>.log`, cuối log c�
 
 ```
 config/<spider>/          cấu hình nguồn: _common.yaml và các nhóm <nhom>.yaml
-hb_1014/spiders/          base.py (dùng chung), <nguon>_spider.py
-hb_1014/pipelines/        normalize → validation → redis_dedup → kafka
-hb_1014/utils/            config_loader, redis_client, kafka_producer, normalizer
-hb_1014/extensions.py     ghi log và thống kê
+chotot/spiders/          base.py (dùng chung), <nguon>_spider.py
+chotot/pipelines/        normalize → validation → redis_dedup → kafka
+chotot/utils/            config_loader, redis_client, kafka_producer, normalizer
+chotot/extensions.py     ghi log và thống kê
 scripts/seed_urls.py      đẩy URL từ cấu hình vào Redis
 ```
 

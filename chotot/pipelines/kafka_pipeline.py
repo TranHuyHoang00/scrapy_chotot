@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 
 from itemadapter import ItemAdapter
 
-from hb_1014.items import AdItem
-from hb_1014.pipelines.redis_dedup import unmark
-from hb_1014.utils.kafka_producer import close_producer, default_topic, get_producer
-from hb_1014.utils.normalizer import to_iso_utc
+from chotot.items import AdItem
+from chotot.pipelines.redis_dedup import unmark
+from chotot.utils.kafka_producer import close_producer, default_topic, get_producer
+from chotot.utils.normalizer import to_iso_utc
 
 SCHEMA_VERSION = "1.0"
 EVENT_TYPE = "ad.upsert"

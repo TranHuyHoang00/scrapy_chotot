@@ -1,8 +1,8 @@
 import json
 from datetime import datetime, timezone
 
-from hb_1014.spiders.base import BaseSpider
-from hb_1014.utils.normalizer import clean_url, extract_id, to_iso_utc
+from chotot.spiders.base import BaseSpider
+from chotot.utils.normalizer import clean_url, extract_id, to_iso_utc
 
 AD_LINK_REGEX = r"^[^#?]*/\d+\.htm"
 AD_INFO_PATH = ("props", "pageProps", "initialState", "adView", "adInfo")

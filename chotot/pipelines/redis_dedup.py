@@ -4,7 +4,7 @@ import json
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 
-from hb_1014.utils.redis_client import get_redis
+from chotot.utils.redis_client import get_redis
 
 IGNORED_FIELDS = ("crawled_at", "posted_at")
 
