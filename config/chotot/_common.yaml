@@ -1,12 +1,7 @@
 source: chotot
 base_url: https://www.chotot.com
 
-pagination:
-  param: page
-  start: 1
-  max_pages: 10000
-  max_items_per_page: 10000
-
+# Settings Scrapy riêng cho spider chotot (ghi đè chotot/settings.py)
 settings:
   DOWNLOAD_DELAY: 1.5
   CONCURRENT_REQUESTS_PER_DOMAIN: 4

@@ -107,7 +107,7 @@ Tham số tùy chọn giống spider mẫu: `-a proxy=... -a topic=... -a check_
 Test local: đẩy profile giả vào topic input rồi chạy spider:
 
 ```bash
-python scripts/seed_profiles.py chotot dodientu --pages 2
+python scripts/seed_profiles.py --pages 2
 scrapy crawl chotot -s CLOSESPIDER_ITEMCOUNT=30
 ```
 
@@ -122,7 +122,7 @@ chotot/pipelines/                normalize → validation → redis_dedup → ka
 chotot/kafka_logging.py          gửi log [HYDRA-MONITOR] sang hydra-spider-log
 chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer, config_loader
 chotot/extensions.py             ghi log ra file và thống kê
-config/chotot/                   danh mục mẫu, dùng cho scripts/seed_profiles.py khi test
+config/chotot/_common.yaml       settings Scrapy riêng của spider (delay, concurrency)
 scripts/seed_profiles.py         đẩy profile test vào Kafka
 ```
 
@@ -139,16 +139,17 @@ scripts/seed_profiles.py         đẩy profile test vào Kafka
 
 ## 1. Đầu vào: profile từ Kafka
 
-Spider đọc topic `KAFKA_TOPIC_INPUT` (mặc định `hydra-profile-scheduler-chotot`). Mỗi message là một profile, `seed_url`/`url` là **URL danh mục chotot**, ví dụ `https://www.chotot.com/mua-ban-dien-thoai`.
+Spider đọc topic `KAFKA_TOPIC_INPUT` (mặc định `hydra-profile-scheduler-chotot`). Mỗi message là một profile, `seed_url`/`url` là **trang tổng hợp toàn bộ tin** `https://www.chotot.com/mua-ban` (không crawl theo danh mục). URL không thuộc chotot.com thì spider dùng `CHOTOT_START_URL`.
 
-Trường dùng đến: `profile_id`, `seed_url`/`url`, `name`, `type`, `channel_name`, `tenants`. Có thể thêm (không bắt buộc): `max_pages`, `max_items_per_page`, `vertical`, `category`.
+Trường dùng đến: `profile_id`, `seed_url`/`url`, `name`, `type`, `channel_name`, `tenants`. Có thể thêm (không bắt buộc): `max_pages`, `max_items_per_page`.
 
 URL không có `http(s)://` → đánh dấu profile `No http/https` và bỏ qua.
 
 ## 2. Crawl
 
 1. Ghi `crawled_time` của profile vào Elasticsearch.
-2. **Trang danh sách**: lấy link tin dạng `/<ID>.htm`, lần lượt `?page=1..max_pages` (mặc định `CHOTOT_MAX_PAGES`).
+2. **Trang danh sách**: `/mua-ban`, rồi `/mua-ban?page=2`, `?page=3`... tới `max_pages` (mặc định `CHOTOT_MAX_PAGES`); gặp trang không có tin thì dừng.
+   Link tin lấy từ thẻ `<li> ... <a href=".../<ID>.htm">`, có thể thuộc domain khác của Chợ Tốt như `nhatot.com` (không dựa vào class vì class sinh tự động).
    Trang đầu có tin → profile `crawled, alive` (gửi 1 lần/lượt chạy). Trang đầu lỗi 4xx → `dead`.
 3. **Trang chi tiết**: đọc JSON `__NEXT_DATA__`, tạo `AdItem`, bọc thành item Hydra `{"item_data": {...}}`.
 
@@ -193,5 +194,6 @@ Thời gian là timestamp mili giây. `created_time` lấy theo thời điểm �
 ## Còn cần xác nhận với team
 
 - Tên topic input/output và `KAFKA_GROUP_ID` cho chotot.
-- Profile chotot là URL danh mục (như hiện tại) hay URL khác.
+- Profile chotot có trỏ tới `https://www.chotot.com/mua-ban` như hiện tại không.
+- Xử lý trang chi tiết (đang dùng tạm cách đọc `__NEXT_DATA__` cũ, tin `nhatot.com` có thể khác cấu trúc).
 - Giá trị `crawler_system` cho spider crawl HTML.

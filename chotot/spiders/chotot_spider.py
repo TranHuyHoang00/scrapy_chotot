@@ -1,9 +1,8 @@
 import json
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 
 import scrapy
-from w3lib.url import add_or_replace_parameter, url_query_parameter
+from w3lib.url import add_or_replace_parameter
 
 from chotot.items import AdItem
 from chotot.spiders.base import HydraBaseSpider
@@ -31,23 +30,19 @@ def ms_to_iso(value):
         return None
 
 
-def category_from_url(url):
-    """https://www.chotot.com/mua-ban-dien-thoai?page=2 → mua-ban-dien-thoai"""
-    parts = [p for p in urlparse(url).path.split("/") if p]
-    return parts[-1] if parts else None
-
-
 class ChototSpider(HydraBaseSpider):
-    """Mỗi profile Hydra là một URL danh mục chotot (vd https://www.chotot.com/mua-ban-dien-thoai).
+    """Crawl trang tổng hợp toàn bộ tin: https://www.chotot.com/mua-ban?page=N
+
+    URL lấy từ seed_url/url của profile Hydra; profile không có URL hợp lệ thì dùng CHOTOT_START_URL.
+    Link chi tiết có thể thuộc domain khác của Chợ Tốt (nhatot.com, xe.chotot.com...).
 
     Có thể khai báo thêm trong profile (không bắt buộc):
         max_pages            số trang danh sách tối đa (mặc định CHOTOT_MAX_PAGES)
         max_items_per_page   số tin tối đa mỗi trang, 0 = lấy hết
-        vertical             nhóm ngành, vd electronics
     """
 
     name = "chotot"
-    allowed_domains = ["chotot.com"]
+    allowed_domains = ["chotot.com", "nhatot.com"]
 
     def _inc(self, name):
         self.crawler.stats.inc_value(f"chotot/{name}")
@@ -55,16 +50,18 @@ class ChototSpider(HydraBaseSpider):
     # ------------------------------------------------------------ danh sách
 
     def start_profile(self, profile, url):
-        page_param = self.settings.get("CHOTOT_PAGE_PARAM", "page")
-        start_page = int(url_query_parameter(url, page_param) or 1)
-        yield self.list_request(profile, url, start_page)
+        if "chotot.com" not in url:
+            url = self.settings.get("CHOTOT_START_URL")
+        yield self.list_request(profile, url, 1)
 
     def list_request(self, profile, base_url, page):
         page_param = self.settings.get("CHOTOT_PAGE_PARAM", "page")
+        url = base_url if page == 1 else add_or_replace_parameter(base_url, page_param, str(page))
         return scrapy.Request(
-            add_or_replace_parameter(base_url, page_param, str(page)),
+            url,
             callback=self.parse,
-            errback=self.error_back_start_request,
+            # chỉ trang 1 lỗi mới đánh dấu profile dead
+            errback=self.error_back_start_request if page == 1 else None,
             meta=self.request_meta(profile, base_url=base_url, page=page),
             dont_filter=True,
         )
@@ -75,35 +72,42 @@ class ChototSpider(HydraBaseSpider):
             return self.settings.getint(setting, default)
         return int(value)
 
+    def extract_links(self, response):
+        """Link tin nằm trong <li> của danh sách: <li ...><div ...><a href=".../135011939.htm">.
+        Không dùng class (a14axl8t, cwv3xk0...) vì là class sinh tự động, dễ đổi."""
+        hrefs = response.css("li a::attr(href)").re(AD_LINK_REGEX)
+        links = [response.urljoin(h) for h in hrefs]
+        return list(dict.fromkeys(links))
+
     def parse(self, response):
         profile = response.meta["profile"]
         page = response.meta["page"]
         profile_id = profile.get("profile_id")
 
-        links = list(dict.fromkeys(response.css("a::attr(href)").re(AD_LINK_REGEX)))
+        links = self.extract_links(response)
         limit = self._profile_int(profile, "max_items_per_page", "CHOTOT_MAX_ITEMS_PER_PAGE", 0)
         if limit and len(links) > limit:
             links = links[:limit]
 
         if not links:
             self._inc("list_empty")
-            self.monitor("WARNING", f"[{profile_id}] Trang {page} không có link tin: {response.url}")
+            self.monitor("WARNING", f"[{profile_id}] Trang {page} không có link tin, dừng phân trang: {response.url}")
             return
 
         self._inc("list_pages")
-        self.update_status_source(profile_id, ["crawled", "alive"], once=True)
+        if page == 1:
+            self.update_status_source(profile_id, ["crawled", "alive"], once=True)
         self.logger.info("[%s] Trang %s: %d link tin", profile_id, page, len(links))
 
         for link in links:
-            yield response.follow(
+            yield scrapy.Request(
                 link,
                 callback=self.parse_detail,
                 meta=self.request_meta(profile),
             )
 
         max_pages = self._profile_int(profile, "max_pages", "CHOTOT_MAX_PAGES", 5)
-        start_page = int(url_query_parameter(response.meta["base_url"], self.settings.get("CHOTOT_PAGE_PARAM", "page")) or 1)
-        if page - start_page + 1 < max_pages:
+        if page < max_pages:
             yield self.list_request(profile, response.meta["base_url"], page + 1)
 
     # ------------------------------------------------------------- chi tiết
@@ -134,10 +138,8 @@ class ChototSpider(HydraBaseSpider):
         item["source"] = self.name
         item["ad_id"] = str(ad.get("list_id") or extract_id(response.url))
         item["url"] = clean_url(response.url)
-        item["vertical"] = profile.get("vertical")
-        item["category"] = profile.get("category") or category_from_url(
-            profile.get("seed_url") or profile.get("url") or ""
-        )
+        # TODO: phần chi tiết sẽ làm lại sau (tin nhatot.com có thể khác cấu trúc)
+        item["category"] = str(ad["category"]) if ad.get("category") else None
         item["category_name"] = ad.get("category_name")
         item["title"] = ad.get("subject")
         item["description"] = ad.get("body")

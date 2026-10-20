@@ -102,6 +102,7 @@ MONITOR_ENABLED = env_bool("MONITOR_ENABLED", True)
 MONITOR_PROGRESS_EVERY = env_int("MONITOR_PROGRESS_EVERY", 50)
 
 # ===== Crawl chotot =====
+CHOTOT_START_URL = env("CHOTOT_START_URL", "https://www.chotot.com/mua-ban")  # trang tổng hợp toàn bộ tin
 CHOTOT_PAGE_PARAM = "page"
 CHOTOT_MAX_PAGES = env_int("CHOTOT_MAX_PAGES", 5)                    # số trang/danh mục nếu profile không khai báo
 CHOTOT_MAX_ITEMS_PER_PAGE = env_int("CHOTOT_MAX_ITEMS_PER_PAGE", 0)  # 0 = lấy hết
