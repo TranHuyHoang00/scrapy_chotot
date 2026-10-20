@@ -8,17 +8,17 @@ categories:
   - category: mua-ban-dien-thoai
     name: Điện thoại
     path: /mua-ban-dien-thoai
-    max_items_per_page: 1 # 0 là lấy hết
+    max_items_per_page: 0 # 0 là lấy hết
     enabled: true
 
   - category: mua-ban-may-tinh-bang
     name: Máy tính bảng
     path: /mua-ban-may-tinh-bang
-    max_items_per_page: 1 # 0 là lấy hết
+    max_items_per_page: 0 # 0 là lấy hết
     enabled: true
 
   - category: mua-ban-laptop
     name: Laptop
     path: /mua-ban-laptop
-    max_items_per_page: 1 # 0 là lấy hết
+    max_items_per_page: 0 # 0 là lấy hết
     enabled: true

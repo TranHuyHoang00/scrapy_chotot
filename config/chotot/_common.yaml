@@ -4,8 +4,8 @@ base_url: https://www.chotot.com
 pagination:
   param: page
   start: 1
-  max_pages: 1
-  max_items_per_page: 1
+  max_pages: 10000
+  max_items_per_page: 10000
 
 settings:
   DOWNLOAD_DELAY: 1.5
