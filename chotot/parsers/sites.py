@@ -1,6 +1,6 @@
 """Adapter riêng cho từng site. Chỉ bổ sung những gì phần chung không có."""
 
-from chotot.parsers.base import BaseAdParser, to_int
+from chotot.parsers.base import BaseAdParser, to_float, to_int
 
 
 class ChototParser(BaseAdParser):
@@ -59,7 +59,48 @@ class VieclamtotParser(BaseAdParser):
 
 
 class NhatotParser(BaseAdParser):
-    """nhatot.com: bất động sản.
-    TODO: chưa có dữ liệu mẫu (bị Cloudflare chặn), tạm dùng phần chung."""
+    """nhatot.com: bất động sản (mua bán, cho thuê).
+
+    ad_params trả chữ để hiển thị ("53,5 m²", "2 phòng", "37,38 triệu/m²");
+    ad có số chuẩn (size, rooms, toilets, price_million_per_m2) nên lấy số từ ad.
+    """
 
     site = "nhatot"
+
+    # specs id → (trường số trong ad, hàm đổi kiểu)
+    NUMERIC_SPECS = {
+        "size": ("size", to_float),
+        "rooms": ("rooms", to_int),
+        "toilets": ("toilets", to_int),
+        "floornumber": ("floornumber", to_int),
+    }
+
+    def extra(self, item, ad, ad_params):
+        specs, labels = item["specs"], item["specs_labels"]
+
+        for key, (field, convert) in self.NUMERIC_SPECS.items():
+            value = convert(ad.get(field))
+            if value is not None:
+                specs[key] = value
+            elif key in specs and not isinstance(specs[key], (int, float)):
+                specs.pop(key)
+        if "size" in specs:
+            specs["size_unit"] = ad.get("size_unit_string") or "m²"
+            labels["size_unit"] = "Đơn vị diện tích"
+
+        # "37,38 triệu/m²" → 37383180 (VNĐ/m²)
+        specs.pop("price_m2", None)
+        labels.pop("price_m2", None)
+        price_m2 = to_float(ad.get("price_million_per_m2"))
+        if price_m2:
+            specs["price_per_m2"] = round(price_m2 * 1_000_000)
+            labels["price_per_m2"] = "Giá/m² (VNĐ)"
+
+        if ad.get("pty_project_name"):
+            specs["project_name"] = ad["pty_project_name"]
+            labels["project_name"] = "Dự án"
+        if ad.get("projectid"):
+            specs["project_id"] = ad["projectid"]
+            labels["project_id"] = "Mã dự án"
+
+        item["location"]["street"] = ad.get("street_name")

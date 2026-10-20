@@ -142,7 +142,7 @@ class BaseAdParser:
             "account_oid": ad.get("account_oid"),
             "name": ad.get("full_name") or ad.get("account_name"),
             "avatar": ad.get("avatar"),
-            "is_company": ad.get("company_ad"),
+            "is_company": bool(ad.get("company_ad")),  # không có trường = người đăng cá nhân
             "phone_masked": ad.get("phone"),  # số đầy đủ không có trong __NEXT_DATA__
         }
 

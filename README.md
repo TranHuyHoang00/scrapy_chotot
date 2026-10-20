@@ -158,7 +158,7 @@ URL không có `http(s)://` → đánh dấu profile `No http/https` và bỏ qu
 | `chotot.com` | `ChototParser` | gian hàng (`shop_*`), đánh giá, số tin đã bán |
 | `xe.chotot.com` | `XeParser` | số km thật lấy từ `mileage_v2` (`mileage` gốc chỉ là mã khoảng) |
 | `vieclamtot.com` | `VieclamtotParser` | không có `price`; dùng `salary_min/max/type`, tên & logo công ty |
-| `nhatot.com` | `NhatotParser` | chưa có dữ liệu mẫu, tạm dùng phần chung |
+| `nhatot.com` | `NhatotParser` | diện tích, số phòng, tầng dạng số; giá/m² (VNĐ); dự án; tên đường (`location.street`) |
 
 Code: `chotot/parsers/base.py` (phần chung), `chotot/parsers/sites.py` (adapter), `chotot/parsers/__init__.py` (chọn theo domain).
 Thêm site mới: viết 1 class kế thừa `BaseAdParser`, thêm domain vào `PARSERS` và `ALLOWED_DOMAINS`.
@@ -222,5 +222,5 @@ Số điện thoại đầy đủ không có trong `__NEXT_DATA__` (chỉ có d�
 
 - Tên topic input/output và `KAFKA_GROUP_ID` cho chotot.
 - Profile chotot có trỏ tới `https://www.chotot.com/mua-ban` như hiện tại không.
-- Parser `nhatot.com`: cần dữ liệu mẫu (đang bị Cloudflare chặn).
+- nhatot.com chặn Cloudflare khi mở bằng trình duyệt: cần chạy thử spider xem request có bị chặn không.
 - Giá trị `crawler_system` cho spider crawl HTML.
