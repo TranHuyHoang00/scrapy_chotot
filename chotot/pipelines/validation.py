@@ -1,7 +1,9 @@
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 
-DEFAULT_REQUIRED_FIELDS = ("ad_id", "url", "vertical", "category", "title", "price")
+from chotot.utils.hydra import get_ad
+
+DEFAULT_REQUIRED_FIELDS = ("ad_id", "url", "title", "price")
 DEFAULT_MIN_TITLE_LENGTH = 3
 
 
@@ -26,8 +28,8 @@ class ValidationPipeline:
             self.stats.inc_value("validation/dropped")
         raise DropItem(f"[{reason}] {adapter.get('url')}")
 
-    def process_item(self, item):
-        adapter = ItemAdapter(item)
+    def process_item(self, item, spider=None):
+        adapter = ItemAdapter(get_ad(item))
 
         missing = [f for f in self.required_fields if adapter.get(f) in (None, "", [], {})]
         if missing:

@@ -7,3 +7,7 @@ logs/*
 !output/.gitkeep
 !logs/.gitkeep
 get-pip.py
+
+# Chứng chỉ Kafka SSL: không commit
+chotot/ssl/*
+!chotot/ssl/.gitkeep

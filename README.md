@@ -1,9 +1,12 @@
 # scrapy_chotot
 
-Hệ thống thu thập dữ liệu bằng Scrapy, dùng Redis để quản lý hàng đợi và chống trùng, đẩy dữ liệu đã chuẩn hóa sang Kafka.
+Spider Scrapy thu thập tin đăng chotot.com, viết theo quy ước **Hydra** (giống spider mẫu `scrapy_opensanctions`) để chạy được trên Crawlab:
 
 ```
-Website → Spider (Scrapy) → Pipeline (chuẩn hóa → kiểm tra → chống trùng Redis) → Kafka
+Kafka (hydra-profile-scheduler-chotot) → Spider → Pipeline (chuẩn hóa → kiểm tra → chống trùng Redis) → Kafka (hydra-chotot)
+                                            ├─ cập nhật crawled_time (Elasticsearch)
+                                            ├─ cập nhật source_status (API profile)
+                                            └─ log [HYDRA-MONITOR] → Kafka (hydra-spider-log)
 ```
 
 ## Yêu cầu
@@ -44,12 +47,12 @@ scrapy version
 cp .env.example .env
 ```
 
-Sửa `.env` nếu cần. Máy ra Internet qua proxy thì bật proxy cho spider:
+Toàn bộ địa chỉ máy chủ, key, mật khẩu đọc từ biến môi trường, **không ghi trong code**. Trên Crawlab, khai báo các biến trong `.env.example` ở phần Environment của spider.
 
-```ini
-USE_PROXY=true
-CRAWL_PROXY=http://172.20.148.40:3128
-```
+- **Kafka Hydra (SSL)**: đặt `ca.pem`, `key.pem`, `certificate.pem` vào `chotot/ssl/` (thư mục đã được `.gitignore`, không commit), điền `KAFKA_BOOTSTRAP_SERVERS`.
+- **Test local** bằng docker-compose: đặt `KAFKA_SECURITY_PROTOCOL=PLAINTEXT`, `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`.
+- `ES_HOST`, `END_POINT_API`, `API_KEY_GLOBAL` để trống thì spider bỏ qua bước cập nhật Elasticsearch / trạng thái profile.
+- Máy ra Internet qua proxy: `USE_PROXY=true`, `CRAWL_PROXY=http://...`.
 
 ## 4. Cài Docker (bỏ qua nếu đã có)
 
@@ -91,31 +94,21 @@ Cả 3 container `chotot_redis`, `chotot_kafka`, `chotot_kafka_ui` phải ở tr
 
 Kafka UI: http://localhost:8080. Topic `chotot.ads` tự tạo khi có message đầu tiên, hoặc tạo tay trên Kafka UI (3 partitions, replication factor 1).
 
-## 6. Kiểm tra kết nối
+## 6. Chạy crawler
+
+Trên hệ thống Hydra/Crawlab, lệnh chạy chỉ là:
 
 ```bash
-python -c "
-from chotot.utils.redis_client import check_connection as r
-from chotot.utils.kafka_producer import check_connection as k, close_producer
-print('Redis:', r()); print('Kafka:', k()); close_producer()
-"
-```
-
-Cả hai phải là `True`.
-
-## 7. Chạy crawler
-
-TARGET_ITEM_COUNT trong .env là số item tối đa sẽ lấy
-
-```bash
-python scripts/seed_urls.py chotot dodientu --clear
 scrapy crawl chotot
 ```
 
-Chạy thử số lượng nhỏ:
+Tham số tùy chọn giống spider mẫu: `-a proxy=... -a topic=... -a check_lag=1`.
+
+Test local: đẩy profile giả vào topic input rồi chạy spider:
 
 ```bash
-scrapy crawl chotot -s CLOSESPIDER_ITEMCOUNT=30 -s MAX_IDLE_TIME=20
+python scripts/seed_profiles.py chotot dodientu --pages 2
+scrapy crawl chotot -s CLOSESPIDER_ITEMCOUNT=30
 ```
 
 Log mỗi lần chạy lưu tại `logs/chotot_<thời gian>.log`, cuối log có bảng tổng kết.
@@ -123,12 +116,14 @@ Log mỗi lần chạy lưu tại `logs/chotot_<thời gian>.log`, cuối log c�
 ## Cấu trúc chính
 
 ```
-config/<spider>/          cấu hình nguồn: _common.yaml và các nhóm <nhom>.yaml
-chotot/spiders/          base.py (dùng chung), <nguon>_spider.py
-chotot/pipelines/        normalize → validation → redis_dedup → kafka
-chotot/utils/            config_loader, redis_client, kafka_producer, normalizer
-chotot/extensions.py     ghi log và thống kê
-scripts/seed_urls.py      đẩy URL từ cấu hình vào Redis
+chotot/spiders/base.py           HydraBaseSpider: đọc profile Kafka, ES, source_status, log HYDRA-MONITOR
+chotot/spiders/chotot_spider.py  trang danh sách → trang chi tiết → AdItem
+chotot/pipelines/                normalize → validation → redis_dedup → kafka (format Hydra)
+chotot/kafka_logging.py          gửi log [HYDRA-MONITOR] sang hydra-spider-log
+chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer, config_loader
+chotot/extensions.py             ghi log ra file và thống kê
+config/chotot/                   danh mục mẫu, dùng cho scripts/seed_profiles.py khi test
+scripts/seed_profiles.py         đẩy profile test vào Kafka
 ```
 
 ## Lỗi thường gặp
@@ -136,91 +131,67 @@ scripts/seed_urls.py      đẩy URL từ cấu hình vào Redis
 | Lỗi | Cách xử lý |
 |---|---|
 | `scrapy: command not found` | Chưa kích hoạt venv: `source venv/bin/activate` |
+| `Total source: 0` | Topic input chưa có profile, hoặc group_id đã đọc hết message |
+| Lỗi SSL khi kết nối Kafka | Kiểm tra 3 file trong `chotot/ssl/` và `KAFKA_SECURITY_PROTOCOL` |
 | `permission denied ... docker.sock` | Chưa đăng xuất/đăng nhập lại sau khi thêm vào nhóm docker |
-| Kafka `Restarting`, log có `AccessDeniedException` | Chạy lại lệnh `chown` volume ở bước 5 |
-| Tải image bị `unexpected EOF` | Proxy ngắt kết nối, chạy lại `docker compose up -d` |
-| `robotstxt/forbidden` trong thống kê | URL bị `robots.txt` của website chặn, cần đổi nguồn URL |
-
 
 # Luồng hoạt động
 
-## 1. Cấu hình
+## 1. Đầu vào: profile từ Kafka
 
-- `config/chotot/_common.yaml`: cấu hình chung của nguồn (domain, phân trang, tốc độ crawl).
-- `config/chotot/<nhom>.yaml`: danh sách danh mục của một nhóm (ví dụ `dodientu.yaml`), bật/tắt bằng `enabled`.
-- `.env`: địa chỉ Redis, Kafka, proxy, số item mục tiêu `TARGET_ITEM_COUNT`.
+Spider đọc topic `KAFKA_TOPIC_INPUT` (mặc định `hydra-profile-scheduler-chotot`). Mỗi message là một profile, `seed_url`/`url` là **URL danh mục chotot**, ví dụ `https://www.chotot.com/mua-ban-dien-thoai`.
 
-## 2. Đưa URL vào hàng đợi
+Trường dùng đến: `profile_id`, `seed_url`/`url`, `name`, `type`, `channel_name`, `tenants`. Có thể thêm (không bắt buộc): `max_pages`, `max_items_per_page`, `vertical`, `category`.
 
-```bash
-python scripts/seed_urls.py chotot dodientu --clear
-```
+URL không có `http(s)://` → đánh dấu profile `No http/https` và bỏ qua.
 
-Đọc cấu hình, tạo URL trang danh sách cho các danh mục đang bật, thêm vào Redis `chotot:start_urls`. Mỗi URL kèm thông tin danh mục (`vertical`, `category`, `max_items_per_page`…).
+## 2. Crawl
 
-## 3. Spider crawl
+1. Ghi `crawled_time` của profile vào Elasticsearch.
+2. **Trang danh sách**: lấy link tin dạng `/<ID>.htm`, lần lượt `?page=1..max_pages` (mặc định `CHOTOT_MAX_PAGES`).
+   Trang đầu có tin → profile `crawled, alive` (gửi 1 lần/lượt chạy). Trang đầu lỗi 4xx → `dead`.
+3. **Trang chi tiết**: đọc JSON `__NEXT_DATA__`, tạo `AdItem`, bọc thành item Hydra `{"item_data": {...}}`.
 
-```bash
-scrapy crawl chotot
-```
-
-1. Lấy URL từ hàng đợi Redis.
-2. **Trang danh sách**: lấy link tin dạng `/<ID>.htm`, tối đa `max_items_per_page` link mỗi trang.
-3. **Trang chi tiết**: đọc JSON `__NEXT_DATA__`, tạo `AdItem` (tiêu đề, giá, vị trí, thông số, ảnh…).
-
-Mọi request đi qua middleware: đổi User-Agent ngẫu nhiên, gắn proxy nếu `USE_PROXY=true`, tôn trọng `robots.txt`.
-
-## 4. Pipelines xử lý item
+## 3. Pipelines
 
 | Thứ tự | Pipeline | Việc làm |
 |---|---|---|
-| 100 | `normalize` | Làm sạch chữ, đổi giá sang số, thời gian sang ISO UTC, key thông số không dấu |
-| 200 | `validation` | Loại item thiếu trường bắt buộc hoặc giá không hợp lệ |
-| 300 | `redis_dedup` | Loại item trùng nội dung đã gửi (lưu dấu vân tay trong Redis) |
-| 400 | `kafka_pipeline` | Đóng gói message chuẩn, gửi Kafka |
-
-## 5. Message gửi Kafka
-
-```json
-{
-  "schema_version": "1.0",
-  "event_id": "uuid",
-  "event_type": "ad.upsert",
-  "event_time": "2026-10-09T08:00:00+00:00",
-  "source": "chotot",
-  "data": { "ad_id": "...", "title": "...", "price": 8290000, "specs": {}, "...": "đủ 16 trường AdItem" }
-}
-```
-
-- Key message: `chotot:<ad_id>`.
-- `event_type: ad.upsert`: phía nhận dùng `ad_id` làm khóa thêm mới hoặc ghi đè.
-
-## 6. Chống trùng 2 lớp
-
-| Lớp | Lưu ở | Tác dụng |
-|---|---|---|
-| Bộ lọc URL | `chotot:dupefilter` | Không tải lại trang chi tiết đã crawl |
-| Dấu vân tay nội dung | `dedup:chotot` | Không gửi lại tin không đổi; tin đổi giá/nội dung được gửi bản mới |
+| 100 | `normalize` | Làm sạch chữ, đổi giá sang số, chuẩn hóa thời gian, key thông số không dấu |
+| 200 | `validation` | Loại tin thiếu `ad_id`, `url`, `title`, `price` hoặc giá không hợp lệ |
+| 300 | `redis_dedup` | Loại tin không đổi so với lần gửi trước (dấu vân tay trong Redis `dedup:chotot`) |
+| 400 | `kafka_pipeline` | Điền thời gian, `entry_rowkey`, gửi `KAFKA_TOPIC_OUTPUT` |
 
 Gửi Kafka thất bại thì dấu vân tay bị xóa, lần crawl sau tin được gửi lại.
 
-## 7. Khi nào spider dừng
+## 4. Message gửi Kafka (`hydra-chotot`)
 
-- Đủ `TARGET_ITEM_COUNT` item hợp lệ, hoặc
-- Hàng đợi trống quá `MAX_IDLE_TIME` giây (mặc định 60).
+```json
+{
+  "url": "https://www.chotot.com/.../123456789.htm",
+  "data": { "ad_id": "123456789", "title": "...", "price": 8290000, "posted_at": 1760000000000, "...": "đủ 16 trường AdItem" },
+  "post_id": "123456789",
+  "profile_id": "...",
+  "entry_rowkey": "md5(post_id) dạng số, 27 ký tự",
+  "created_time": 1760000000000,
+  "flag_crawl_created_time": 1,
+  "updated_time": 1760000000000,
+  "inserted_time": 1760000000000,
+  "tenant_ids": ["..."], "_tenants": [],
+  "docType": "Post", "type": "post",
+  "channel_name": "chotot", "owner_name": "...", "author_name": "...", "owner_type": "...",
+  "crawler_system": "api-crawler"
+}
+```
 
-Dừng giữa chừng (`Ctrl + C`) thì lần sau chạy `scrapy crawl chotot` sẽ làm tiếp nhờ hàng đợi lưu trong Redis.
+Thời gian là timestamp mili giây. `created_time` lấy theo thời điểm đăng tin (`flag_crawl_created_time = 1`); không có thì lấy thời điểm crawl (`= 0`).
 
-## 8. Theo dõi
+## 5. Giám sát
 
-- Log mỗi lần chạy: `logs/chotot_<thời gian>.log`, cuối log có bảng tổng kết (request, item hợp lệ/bị loại, chống trùng, Kafka, theo danh mục).
-- Kafka UI: http://localhost:8080.
+- Log có tag `[HYDRA-MONITOR]` được gửi sang `hydra-spider-log` kèm `CRAWLAB_TASK_ID`.
+- File log local: `logs/chotot_<thời gian>.log`.
 
-## Các key Redis
+## Còn cần xác nhận với team
 
-| Key | Nội dung |
-|---|---|
-| `chotot:start_urls` | URL trang danh sách chờ crawl |
-| `chotot:requests` | Request đang chờ, để chạy tiếp khi bị dừng |
-| `chotot:dupefilter` | URL trang chi tiết đã crawl |
-| `dedup:chotot` | `ad_id` → dấu vân tay nội dung đã gửi Kafka |
+- Tên topic input/output và `KAFKA_GROUP_ID` cho chotot.
+- Profile chotot là URL danh mục (như hiện tại) hay URL khác.
+- Giá trị `crawler_system` cho spider crawl HTML.

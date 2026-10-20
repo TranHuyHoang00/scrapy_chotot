@@ -1,6 +1,7 @@
-scrapy
-scrapy-redis
+scrapy>=2.11
 redis
-kafka-python
+kafka-python-ng
+elasticsearch>=8,<9
+requests
 python-dotenv
 pyyaml

@@ -4,6 +4,7 @@ import json
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 
+from chotot.utils.hydra import get_ad
 from chotot.utils.redis_client import get_redis
 
 IGNORED_FIELDS = ("crawled_at", "posted_at")
@@ -38,7 +39,7 @@ class RedisDedupPipeline:
             crawler=crawler,
         )
 
-    def open_spider(self):
+    def open_spider(self, spider=None):
         self.redis = get_redis()
         self.redis.ping()
 
@@ -50,11 +51,11 @@ class RedisDedupPipeline:
         if self.stats:
             self.stats.inc_value(f"dedup/{name}")
 
-    def process_item(self, item):
+    def process_item(self, item, spider=None):
         if self.redis is None:
             self.redis = get_redis()
 
-        adapter = ItemAdapter(item)
+        adapter = ItemAdapter(get_ad(item))
         source = adapter.get("source") or self._spider_name()
         key = dedup_key(source)
         ad_id = str(adapter["ad_id"])

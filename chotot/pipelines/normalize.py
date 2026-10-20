@@ -2,6 +2,8 @@ from datetime import datetime
 
 from itemadapter import ItemAdapter
 
+from chotot.utils.hydra import get_ad
+
 from chotot.utils.normalizer import (
     VN_TZ,
     clean_multiline,
@@ -56,8 +58,8 @@ def normalize_images(urls):
 
 
 class NormalizePipeline:
-    def process_item(self, item):
-        adapter = ItemAdapter(item)
+    def process_item(self, item, spider=None):
+        adapter = ItemAdapter(get_ad(item))
 
         for field in TEXT_FIELDS:
             if adapter.get(field) is not None:

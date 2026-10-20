@@ -1,24 +1,31 @@
+"""Gửi item sang Kafka theo format Hydra (giống opensanctionsPipeline của spider mẫu).
+
+Message gửi đi là nội dung item["item_data"]:
+    url, data, post_id, profile_id, entry_rowkey, tenant_ids, _tenants,
+    created_time, updated_time, inserted_time, flag_crawl_created_time,
+    docType, type, channel_name, owner_name, author_name, owner_type, crawler_system
+Thời gian là timestamp mili giây.
+"""
+
 import logging
-import uuid
-from datetime import datetime, timezone
 
 from itemadapter import ItemAdapter
 
 from chotot.items import AdItem
 from chotot.pipelines.redis_dedup import unmark
-from chotot.utils.kafka_producer import close_producer, default_topic, get_producer
-from chotot.utils.normalizer import to_iso_utc
+from chotot.utils.hydra import generate_key, iso_to_ms, now_ms
+from chotot.utils.kafka_producer import close_producer, make_producer
 
-SCHEMA_VERSION = "1.0"
-EVENT_TYPE = "ad.upsert"
 LIST_FIELDS = ("image_urls",)
 DICT_FIELDS = ("specs",)
+TIME_FIELDS = ("posted_at", "crawled_at")
 
 logger = logging.getLogger(__name__)
 
 
-def build_message(item):
-    adapter = ItemAdapter(item)
+def build_data(ad):
+    """AdItem → dict đủ trường, thời gian đổi sang mili giây."""
+    adapter = ItemAdapter(ad)
     data = {}
     for field in AdItem.fields:
         value = adapter.get(field)
@@ -26,63 +33,79 @@ def build_message(item):
             value = []
         if value is None and field in DICT_FIELDS:
             value = {}
+        if field in TIME_FIELDS:
+            value = iso_to_ms(value)
         data[field] = value
-
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "event_id": str(uuid.uuid4()),
-        "event_type": EVENT_TYPE,
-        "event_time": to_iso_utc(datetime.now(timezone.utc)),
-        "source": data["source"],
-        "data": data,
-    }
+    return data
 
 
-def message_key(message):
-    return f"{message['source']}:{message['data']['ad_id']}"
+def build_message(item_data):
+    message = dict(item_data)
+    data = build_data(item_data["data"])
+    current = now_ms()
+
+    created_time = data.get("posted_at")
+    flag_crawl_created_time = 1 if isinstance(created_time, int) else 0
+    if not flag_crawl_created_time:
+        created_time = current
+
+    message.update(
+        url=data.get("url") or message.get("url"),
+        data=data,
+        created_time=created_time,
+        flag_crawl_created_time=flag_crawl_created_time,
+        updated_time=current,
+        inserted_time=current,
+        entry_rowkey=generate_key(message["post_id"]),
+    )
+    return message
 
 
-class KafkaPipeline:
-    def __init__(self, topic, stats=None):
-        self.topic = topic
+class HydraKafkaPipeline:
+    def __init__(self, settings, stats=None):
+        self.settings = settings
+        self.topic = settings.get("KAFKA_TOPIC_OUTPUT")
         self.stats = stats
         self.producer = None
 
     @classmethod
     def from_crawler(cls, crawler):
-        return cls(
-            topic=crawler.settings.get("KAFKA_TOPIC") or default_topic(),
-            stats=crawler.stats,
-        )
+        return cls(crawler.settings, stats=crawler.stats)
 
     def _inc(self, name):
         if self.stats:
             self.stats.inc_value(f"kafka/{name}")
 
-    def open_spider(self):
-        self.producer = get_producer()
-        logger.info("Kafka topic: %s", self.topic)
+    def open_spider(self, spider=None):
+        self.producer = make_producer(self.settings)
+        logging.getLogger("kafka").setLevel(logging.ERROR)
+        logger.info("Kafka topic output: %s", self.topic)
 
-    def process_item(self, item):
+    def process_item(self, item, spider=None):
+        if "item_data" not in item:
+            return item
         if self.producer is None:
-            self.producer = get_producer()
+            self.producer = make_producer(self.settings)
 
-        message = build_message(item)
-        future = self.producer.send(self.topic, value=message, key=message_key(message))
+        message = build_message(item["item_data"])
+        source = message["data"].get("source")
+        post_id = message["post_id"]
+
+        future = self.producer.send(self.topic, value=message, key=post_id)
         future.add_callback(self._on_success)
-        future.add_errback(self._on_error, message["source"], message["data"]["ad_id"])
+        future.add_errback(self._on_error, source, post_id)
         self._inc("sent")
         return item
 
     def _on_success(self, metadata):
         self._inc("delivered")
 
-    def _on_error(self, source, ad_id, exc):
+    def _on_error(self, source, post_id, exc):
         self._inc("failed")
-        unmark(source, ad_id)
-        logger.error("Gui Kafka that bai %s:%s - %s", source, ad_id, exc)
+        unmark(source, post_id)  # bỏ dấu chống trùng để lần sau gửi lại
+        logger.error("[HYDRA-MONITOR] Gửi Kafka thất bại %s:%s - %s", source, post_id, exc)
 
-    def close_spider(self):
-        close_producer()
+    def close_spider(self, spider=None):
+        close_producer(self.producer)
         self.producer = None
-        logger.info("Da dong Kafka producer")
+        logger.info("Đã đóng Kafka producer")

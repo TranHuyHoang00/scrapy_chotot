@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 from scrapy import signals
 from scrapy.exceptions import NotConfigured
 
+from chotot.utils.hydra import get_ad
+
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILE_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
 NOISY_LOGGERS = ("kafka",)
@@ -91,11 +93,14 @@ class CrawlMonitor:
             s.getfloat("DOWNLOAD_DELAY"),
             s.getint("CONCURRENT_REQUESTS_PER_DOMAIN"),
         )
-        self.logger.info("Redis: %s | Kafka topic: %s", mask_url(s.get("REDIS_URL")), s.get("KAFKA_TOPIC"))
+        self.logger.info("Redis: %s", mask_url(s.get("REDIS_URL")))
+        self.logger.info(
+            "Kafka topic: input %s → output %s", s.get("KAFKA_TOPIC_INPUT"), s.get("KAFKA_TOPIC_OUTPUT")
+        )
 
     def item_scraped(self, item, response, spider):
         self.items += 1
-        category = item.get("category") or "unknown"
+        category = get_ad(item).get("category") or "unknown"
         self.stats.inc_value(f"monitor/category/{category}")
 
         if self.progress_every and self.items % self.progress_every == 0:
