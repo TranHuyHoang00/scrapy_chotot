@@ -107,7 +107,11 @@ CHOTOT_PAGE_PARAM = "page"
 CHOTOT_MAX_PAGES = env_int("CHOTOT_MAX_PAGES", 5)                    # số trang/danh mục nếu profile không khai báo
 CHOTOT_MAX_ITEMS_PER_PAGE = env_int("CHOTOT_MAX_ITEMS_PER_PAGE", 0)  # 0 = lấy hết
 
-VALIDATION_REQUIRED_FIELDS = ["ad_id", "url", "title", "price"]
+# Trường bắt buộc theo site; site không khai báo dùng "default"
+VALIDATION_RULES = {
+    "default": ["ad_id", "url", "title", "price"],
+    "vieclamtot": ["ad_id", "url", "title", "price_text"],
+}
 VALIDATION_MIN_TITLE_LENGTH = 3
 DEDUP_ALLOW_UPDATES = True
 

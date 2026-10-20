@@ -100,8 +100,8 @@ class CrawlMonitor:
 
     def item_scraped(self, item, response, spider):
         self.items += 1
-        category = get_ad(item).get("category") or "unknown"
-        self.stats.inc_value(f"monitor/category/{category}")
+        site = get_ad(item).get("site") or "unknown"
+        self.stats.inc_value(f"monitor/site/{site}")
 
         if self.progress_every and self.items % self.progress_every == 0:
             target = self.settings.getint("CLOSESPIDER_ITEMCOUNT")
@@ -147,9 +147,9 @@ class CrawlMonitor:
         )
         self.logger.info("Kafka: %d gửi, %d thành công, %d thất bại", sent, delivered, failed)
 
-        categories = self._with_prefix("monitor/category/")
+        categories = self._with_prefix("monitor/site/")
         if categories:
-            self.logger.info("Theo danh mục:")
+            self.logger.info("Theo site:")
             for name, count in categories:
                 self.logger.info("  - %s: %d", name, count)
 

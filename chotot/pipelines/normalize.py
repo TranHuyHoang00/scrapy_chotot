@@ -1,50 +1,37 @@
-from datetime import datetime
+"""Làm sạch dữ liệu tin. Dữ liệu lấy từ JSON nên đã có cấu trúc, chỉ cần làm sạch chữ.
+
+Không tự đổi price_text thành số: với việc làm, price_text là khoảng lương
+("10.000.000 đ - 12.000.000 đ/tháng"), đổi ra số sẽ sai.
+"""
 
 from itemadapter import ItemAdapter
 
 from chotot.utils.hydra import get_ad
+from chotot.utils.normalizer import clean_multiline, clean_text, clean_url
 
-from chotot.utils.normalizer import (
-    VN_TZ,
-    clean_multiline,
-    clean_text,
-    clean_url,
-    extract_id,
-    parse_posted_time,
-    parse_price,
-    slugify_key,
-    split_location,
-    to_iso_utc,
-)
-
-TEXT_FIELDS = ("title", "category_name", "city", "district", "price_text")
+TEXT_FIELDS = ("title", "category_name", "condition", "price_text", "salary_type")
+DICT_TEXT_FIELDS = ("location", "seller")
 
 
-def normalize_time(value):
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(value))
-    except ValueError:
-        return parse_posted_time(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=VN_TZ)
-    return to_iso_utc(dt)
+def clean_dict(data):
+    if not isinstance(data, dict):
+        return {}
+    return {k: clean_text(v) if isinstance(v, str) else v for k, v in data.items()}
 
 
-def normalize_specs(specs):
+def clean_specs(specs):
     if not isinstance(specs, dict):
         return {}
     result = {}
     for key, value in specs.items():
-        new_key = slugify_key(key)
-        new_value = clean_text(value) if isinstance(value, str) else value
-        if new_key and new_value not in (None, ""):
-            result[new_key] = new_value
+        if isinstance(value, str):
+            value = clean_text(value)
+        if key and value not in (None, ""):
+            result[key] = value
     return result
 
 
-def normalize_images(urls):
+def unique_urls(urls):
     if not urls:
         return []
     if isinstance(urls, str):
@@ -71,28 +58,22 @@ class NormalizePipeline:
         if adapter.get("url"):
             adapter["url"] = clean_url(adapter["url"])
 
-        if not adapter.get("ad_id") and adapter.get("url"):
-            adapter["ad_id"] = extract_id(adapter["url"])
         if adapter.get("ad_id") is not None:
             adapter["ad_id"] = str(adapter["ad_id"]).strip()
 
-        price = adapter.get("price")
-        if price is None and adapter.get("price_text"):
-            adapter["price"] = parse_price(adapter["price_text"])
-        elif isinstance(price, str):
-            adapter["price"] = parse_price(price)
-
-        city = adapter.get("city")
-        if city and "," in city and not adapter.get("district"):
-            adapter["district"], adapter["city"] = split_location(city)
-
-        if adapter.get("posted_at") is not None:
-            adapter["posted_at"] = normalize_time(adapter["posted_at"])
+        for field in DICT_TEXT_FIELDS:
+            if adapter.get(field) is not None:
+                adapter[field] = clean_dict(adapter[field])
 
         if adapter.get("specs") is not None:
-            adapter["specs"] = normalize_specs(adapter["specs"])
+            adapter["specs"] = clean_specs(adapter["specs"])
+            labels = adapter.get("specs_labels") or {}
+            adapter["specs_labels"] = {k: v for k, v in labels.items() if k in adapter["specs"]}
 
-        if adapter.get("image_urls") is not None:
-            adapter["image_urls"] = normalize_images(adapter["image_urls"])
+        adapter["images"] = unique_urls(adapter.get("images"))
+
+        # Đồng bộ url bên ngoài item Hydra với url đã làm sạch
+        if isinstance(item, dict) and "item_data" in item and adapter.get("url"):
+            item["item_data"]["url"] = adapter["url"]
 
         return item

@@ -7,11 +7,12 @@ from scrapy.exceptions import DropItem
 from chotot.utils.hydra import get_ad
 from chotot.utils.redis_client import get_redis
 
-IGNORED_FIELDS = ("crawled_at", "posted_at")
+# Bỏ qua khi so sánh: thời điểm crawl, và updated_at (tin chỉ được "đẩy lại" thì không gửi lại)
+IGNORED_FIELDS = ("crawled_at", "updated_at")
 
 
-def dedup_key(source):
-    return f"dedup:{source}"
+def dedup_key(site):
+    return f"dedup:{site}"
 
 
 def fingerprint(adapter):
@@ -20,8 +21,8 @@ def fingerprint(adapter):
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
-def unmark(source, ad_id):
-    get_redis().hdel(dedup_key(source), str(ad_id))
+def unmark(site, ad_id):
+    get_redis().hdel(dedup_key(site), str(ad_id))
 
 
 class RedisDedupPipeline:
@@ -56,8 +57,8 @@ class RedisDedupPipeline:
             self.redis = get_redis()
 
         adapter = ItemAdapter(get_ad(item))
-        source = adapter.get("source") or self._spider_name()
-        key = dedup_key(source)
+        site = adapter.get("site") or self._spider_name()
+        key = dedup_key(site)
         ad_id = str(adapter["ad_id"])
 
         new_fp = fingerprint(adapter)
@@ -65,7 +66,7 @@ class RedisDedupPipeline:
 
         if old_fp == new_fp or (old_fp and not self.allow_updates):
             self._inc("duplicate")
-            raise DropItem(f"[duplicate] {source}:{ad_id}")
+            raise DropItem(f"[duplicate] {site}:{ad_id}")
 
         self.redis.hset(key, ad_id, new_fp)
         self._inc("updated" if old_fp else "new")

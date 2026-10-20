@@ -16,9 +16,10 @@ from chotot.pipelines.redis_dedup import unmark
 from chotot.utils.hydra import generate_key, iso_to_ms, now_ms
 from chotot.utils.kafka_producer import close_producer, make_producer
 
-LIST_FIELDS = ("image_urls",)
-DICT_FIELDS = ("specs",)
-TIME_FIELDS = ("posted_at", "crawled_at")
+LIST_FIELDS = ("images", "videos")
+DICT_FIELDS = ("specs", "specs_labels", "location", "seller")
+# posted_at, updated_at đã là ms từ parser; giữ iso_to_ms phòng khi là chuỗi ISO
+TIME_FIELDS = ("posted_at", "updated_at", "crawled_at")
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,16 @@ def build_message(item_data):
     flag_crawl_created_time = 1 if isinstance(created_time, int) else 0
     if not flag_crawl_created_time:
         created_time = current
+    updated_time = data.get("updated_at")
+    if not isinstance(updated_time, int):
+        updated_time = current
 
     message.update(
         url=data.get("url") or message.get("url"),
         data=data,
         created_time=created_time,
         flag_crawl_created_time=flag_crawl_created_time,
-        updated_time=current,
+        updated_time=updated_time,
         inserted_time=current,
         entry_rowkey=generate_key(message["post_id"]),
     )
@@ -88,22 +92,22 @@ class HydraKafkaPipeline:
             self.producer = make_producer(self.settings)
 
         message = build_message(item["item_data"])
-        source = message["data"].get("source")
+        site = message["data"].get("site")
         post_id = message["post_id"]
 
         future = self.producer.send(self.topic, value=message, key=post_id)
         future.add_callback(self._on_success)
-        future.add_errback(self._on_error, source, post_id)
+        future.add_errback(self._on_error, site, post_id)
         self._inc("sent")
         return item
 
     def _on_success(self, metadata):
         self._inc("delivered")
 
-    def _on_error(self, source, post_id, exc):
+    def _on_error(self, site, post_id, exc):
         self._inc("failed")
-        unmark(source, post_id)  # bỏ dấu chống trùng để lần sau gửi lại
-        logger.error("[HYDRA-MONITOR] Gửi Kafka thất bại %s:%s - %s", source, post_id, exc)
+        unmark(site, post_id)  # bỏ dấu chống trùng để lần sau gửi lại
+        logger.error("[HYDRA-MONITOR] Gửi Kafka thất bại %s:%s - %s", site, post_id, exc)
 
     def close_spider(self, spider=None):
         close_producer(self.producer)

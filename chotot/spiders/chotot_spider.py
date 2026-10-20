@@ -1,40 +1,20 @@
 import json
-from datetime import datetime, timezone
 
 import scrapy
 from w3lib.url import add_or_replace_parameter
 
-from chotot.items import AdItem
+from chotot.parsers import ALLOWED_DOMAINS, get_parser
 from chotot.spiders.base import HydraBaseSpider
-from chotot.utils.normalizer import clean_url, extract_id, to_iso_utc
 
 AD_LINK_REGEX = r"^[^#?]*/\d+\.htm"
-AD_INFO_PATH = ("props", "pageProps", "initialState", "adView", "adInfo")
-LOCATION_PARAMS = {"address", "area", "region", "ward"}
-
-
-def dig(data, path):
-    for key in path:
-        if not isinstance(data, dict):
-            return None
-        data = data.get(key)
-    return data
-
-
-def ms_to_iso(value):
-    if not value:
-        return None
-    try:
-        return to_iso_utc(datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc))
-    except (TypeError, ValueError, OverflowError):
-        return None
 
 
 class ChototSpider(HydraBaseSpider):
     """Crawl trang tổng hợp toàn bộ tin: https://www.chotot.com/mua-ban?page=N
 
     URL lấy từ seed_url/url của profile Hydra; profile không có URL hợp lệ thì dùng CHOTOT_START_URL.
-    Link chi tiết có thể thuộc domain khác của Chợ Tốt (nhatot.com, xe.chotot.com...).
+    Link chi tiết có thể thuộc các site khác của Chợ Tốt (xe.chotot.com, vieclamtot.com, nhatot.com);
+    mỗi site có parser riêng trong chotot/parsers/.
 
     Có thể khai báo thêm trong profile (không bắt buộc):
         max_pages            số trang danh sách tối đa (mặc định CHOTOT_MAX_PAGES)
@@ -42,7 +22,7 @@ class ChototSpider(HydraBaseSpider):
     """
 
     name = "chotot"
-    allowed_domains = ["chotot.com", "nhatot.com"]
+    allowed_domains = ALLOWED_DOMAINS
 
     def _inc(self, name):
         self.crawler.stats.inc_value(f"chotot/{name}")
@@ -115,52 +95,29 @@ class ChototSpider(HydraBaseSpider):
     def parse_detail(self, response):
         profile = response.meta["profile"]
 
+        parser = get_parser(response.url)
+        if parser is None:
+            self._inc("detail_unknown_site")
+            self.monitor("WARNING", f"Chưa có parser cho domain: {response.url}")
+            return
+
         raw = response.css("script#__NEXT_DATA__::text").get()
         if not raw:
-            self._inc("detail_no_json")
-            self.logger.warning("Không có __NEXT_DATA__: %s", response.url)
+            self._inc(f"{parser.site}/no_json")
+            self.monitor("WARNING", f"[{parser.site}] Không có __NEXT_DATA__: {response.url}")
             return
 
         try:
-            data = json.loads(raw)
+            next_data = json.loads(raw)
         except ValueError:
-            self._inc("detail_bad_json")
+            self._inc(f"{parser.site}/bad_json")
             return
 
-        ad_info = dig(data, AD_INFO_PATH) or {}
-        ad = ad_info.get("ad") or {}
-        if not ad:
-            self._inc("detail_no_ad")
-            self.logger.warning("Không có dữ liệu tin: %s", response.url)
+        item = parser.parse(next_data, response.url)
+        if item is None:
+            self._inc(f"{parser.site}/no_ad")
+            self.monitor("WARNING", f"[{parser.site}] Không có dữ liệu tin: {response.url}")
             return
 
-        item = AdItem()
-        item["source"] = self.name
-        item["ad_id"] = str(ad.get("list_id") or extract_id(response.url))
-        item["url"] = clean_url(response.url)
-        # TODO: phần chi tiết sẽ làm lại sau (tin nhatot.com có thể khác cấu trúc)
-        item["category"] = str(ad["category"]) if ad.get("category") else None
-        item["category_name"] = ad.get("category_name")
-        item["title"] = ad.get("subject")
-        item["description"] = ad.get("body")
-        item["price"] = ad.get("price")
-        item["price_text"] = ad.get("price_string")
-        item["city"] = ad.get("region_name_v3") or ad.get("region_name")
-        item["district"] = ad.get("area_name")
-        item["posted_at"] = ms_to_iso(ad.get("list_time")) or ad.get("date")
-        item["image_urls"] = ad.get("images") or []
-        item["specs"] = self.extract_specs(ad_info.get("ad_params") or {})
-        item["crawled_at"] = to_iso_utc(datetime.now(timezone.utc))
-
-        self._inc("detail_parsed")
+        self._inc(f"{parser.site}/parsed")
         yield self.build_item_data(profile, item["url"], item["ad_id"], item)
-
-    def extract_specs(self, params):
-        specs = {}
-        for key, param in params.items():
-            if key in LOCATION_PARAMS or not isinstance(param, dict):
-                continue
-            value = param.get("value")
-            if value not in (None, ""):
-                specs[key] = value
-        return specs

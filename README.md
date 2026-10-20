@@ -151,15 +151,25 @@ URL không có `http(s)://` → đánh dấu profile `No http/https` và bỏ qu
 2. **Trang danh sách**: `/mua-ban`, rồi `/mua-ban?page=2`, `?page=3`... tới `max_pages` (mặc định `CHOTOT_MAX_PAGES`); gặp trang không có tin thì dừng.
    Link tin lấy từ thẻ `<li> ... <a href=".../<ID>.htm">`, có thể thuộc domain khác của Chợ Tốt như `nhatot.com` (không dựa vào class vì class sinh tự động).
    Trang đầu có tin → profile `crawled, alive` (gửi 1 lần/lượt chạy). Trang đầu lỗi 4xx → `dead`.
-3. **Trang chi tiết**: đọc JSON `__NEXT_DATA__`, tạo `AdItem`, bọc thành item Hydra `{"item_data": {...}}`.
+3. **Trang chi tiết**: chọn parser theo domain, đọc JSON `__NEXT_DATA__` (`props.initialState.adView.adInfo`), tạo `AdItem` theo schema chung, bọc thành item Hydra `{"item_data": {...}}`.
+
+| Domain | Parser | Phần riêng |
+|---|---|---|
+| `chotot.com` | `ChototParser` | gian hàng (`shop_*`), đánh giá, số tin đã bán |
+| `xe.chotot.com` | `XeParser` | số km thật lấy từ `mileage_v2` (`mileage` gốc chỉ là mã khoảng) |
+| `vieclamtot.com` | `VieclamtotParser` | không có `price`; dùng `salary_min/max/type`, tên & logo công ty |
+| `nhatot.com` | `NhatotParser` | chưa có dữ liệu mẫu, tạm dùng phần chung |
+
+Code: `chotot/parsers/base.py` (phần chung), `chotot/parsers/sites.py` (adapter), `chotot/parsers/__init__.py` (chọn theo domain).
+Thêm site mới: viết 1 class kế thừa `BaseAdParser`, thêm domain vào `PARSERS` và `ALLOWED_DOMAINS`.
 
 ## 3. Pipelines
 
 | Thứ tự | Pipeline | Việc làm |
 |---|---|---|
-| 100 | `normalize` | Làm sạch chữ, đổi giá sang số, chuẩn hóa thời gian, key thông số không dấu |
-| 200 | `validation` | Loại tin thiếu `ad_id`, `url`, `title`, `price` hoặc giá không hợp lệ |
-| 300 | `redis_dedup` | Loại tin không đổi so với lần gửi trước (dấu vân tay trong Redis `dedup:chotot`) |
+| 100 | `normalize` | Làm sạch chữ, bỏ trùng ảnh, bỏ thông số rỗng |
+| 200 | `validation` | Loại tin thiếu trường bắt buộc theo site (`VALIDATION_RULES`; việc làm không bắt buộc `price`) hoặc giá không hợp lệ |
+| 300 | `redis_dedup` | Loại tin không đổi so với lần gửi trước (dấu vân tay trong Redis `dedup:<site>`); tin chỉ được đẩy lại (`updated_at` đổi) cũng không gửi lại |
 | 400 | `kafka_pipeline` | Điền thời gian, `entry_rowkey`, gửi `KAFKA_TOPIC_OUTPUT` |
 
 Gửi Kafka thất bại thì dấu vân tay bị xóa, lần crawl sau tin được gửi lại.
@@ -169,7 +179,7 @@ Gửi Kafka thất bại thì dấu vân tay bị xóa, lần crawl sau tin đư
 ```json
 {
   "url": "https://www.chotot.com/.../123456789.htm",
-  "data": { "ad_id": "123456789", "title": "...", "price": 8290000, "posted_at": 1760000000000, "...": "đủ 16 trường AdItem" },
+  "data": { "site": "chotot", "ad_id": "123456789", "title": "...", "price": 8290000, "location": {}, "seller": {}, "specs": {}, "...": "đủ trường AdItem" },
   "post_id": "123456789",
   "profile_id": "...",
   "entry_rowkey": "md5(post_id) dạng số, 27 ký tự",
@@ -186,6 +196,23 @@ Gửi Kafka thất bại thì dấu vân tay bị xóa, lần crawl sau tin đư
 
 Thời gian là timestamp mili giây. `created_time` lấy theo thời điểm đăng tin (`flag_crawl_created_time = 1`); không có thì lấy thời điểm crawl (`= 0`).
 
+### Schema `data` (AdItem)
+
+| Trường | Ý nghĩa |
+|---|---|
+| `source`, `site` | `chotot`; site con: `chotot` / `xe` / `vieclamtot` / `nhatot` |
+| `ad_id`, `internal_ad_id` | `list_id` (ID trên URL), `ad_id` nội bộ |
+| `url`, `title`, `description`, `category`, `category_name`, `condition` | |
+| `price`, `price_text` | giá số (việc làm = null), chuỗi hiển thị |
+| `salary_min`, `salary_max`, `salary_type` | chỉ việc làm |
+| `location` | `address, city, city_v3, district, ward, ward_v3, region_id, area_id, ward_id, lat, lng` (`*_v3`: tên sau sáp nhập) |
+| `posted_at`, `updated_at`, `crawled_at` | ms: đăng lần đầu (`orig_list_time`), lần đẩy tin gần nhất (`list_time`), lúc crawl |
+| `images`, `videos` | |
+| `seller` | `account_id, account_oid, name, avatar, is_company, phone_masked` + phần riêng site |
+| `specs`, `specs_labels` | thông số `{id: giá trị đọc được}`, `{id: nhãn tiếng Việt}` |
+
+Số điện thoại đầy đủ không có trong `__NEXT_DATA__` (chỉ có dạng che `097567****`).
+
 ## 5. Giám sát
 
 - Log có tag `[HYDRA-MONITOR]` được gửi sang `hydra-spider-log` kèm `CRAWLAB_TASK_ID`.
@@ -195,5 +222,5 @@ Thời gian là timestamp mili giây. `created_time` lấy theo thời điểm �
 
 - Tên topic input/output và `KAFKA_GROUP_ID` cho chotot.
 - Profile chotot có trỏ tới `https://www.chotot.com/mua-ban` như hiện tại không.
-- Xử lý trang chi tiết (đang dùng tạm cách đọc `__NEXT_DATA__` cũ, tin `nhatot.com` có thể khác cấu trúc).
+- Parser `nhatot.com`: cần dữ liệu mẫu (đang bị Cloudflare chặn).
 - Giá trị `crawler_system` cho spider crawl HTML.
