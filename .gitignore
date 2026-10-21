@@ -2,9 +2,7 @@ venv/
 __pycache__/
 *.pyc
 .env
-output/*
 logs/*
-!output/.gitkeep
 !logs/.gitkeep
 get-pip.py
 
