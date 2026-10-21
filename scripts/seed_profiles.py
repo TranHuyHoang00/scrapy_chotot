@@ -1,4 +1,4 @@
-"""Đẩy 1 profile giả vào Kafka topic input để TEST LOCAL.
+"""Đẩy 1 profile test vào Kafka topic input (dùng với Kafka dev).
 
 Trên hệ thống thật, profile do Hydra scheduler đẩy vào topic
 hydra-profile-scheduler-chotot; không cần chạy script này.
@@ -27,7 +27,7 @@ from scrapy.utils.project import get_project_settings  # noqa: E402
 
 from chotot.utils.kafka_producer import close_producer, make_producer  # noqa: E402
 
-TEST_TENANT = {"id": "local-test", "name": "Local test", "project": "local", "category_ids": []}
+TEST_TENANT = {"id": "test", "name": "Test", "project": "test", "category_ids": []}
 
 
 def build_profile(url, max_pages, max_items_per_page):

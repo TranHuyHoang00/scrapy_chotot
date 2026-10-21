@@ -12,7 +12,7 @@ Kafka (hydra-profile-scheduler-chotot) → Spider → Pipeline (chuẩn hóa →
 ## Yêu cầu
 
 - Ubuntu/Linux, Python 3.12+, Git
-- Docker và Docker Compose
+- Kafka dev, Redis của team (không chạy Kafka/Redis local)
 - Proxy (ví dụ dùng `http://172.20.148.40:3128`, thay bằng proxy của bạn)
 
 Đặt biến proxy để dùng cho các lệnh bên dưới:
@@ -49,53 +49,13 @@ cp .env.example .env
 
 Toàn bộ địa chỉ máy chủ, key, mật khẩu đọc từ biến môi trường, **không ghi trong code**. Trên Crawlab, khai báo các biến trong `.env.example` ở phần Environment của spider.
 
-- **Kafka Hydra (SSL)**: đặt `ca.pem`, `key.pem`, `certificate.pem` vào `chotot/ssl/` (thư mục đã được `.gitignore`, không commit), điền `KAFKA_BOOTSTRAP_SERVERS`.
-- **Test local** bằng docker-compose: đặt `KAFKA_SECURITY_PROTOCOL=PLAINTEXT`, `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`.
+- **Kafka**: điền `KAFKA_BOOTSTRAP_SERVERS` của Kafka dev (khi test) hoặc Kafka Hydra (khi chạy thật). Kafka dùng SSL thì đặt `ca.pem`, `key.pem`, `certificate.pem` vào `chotot/ssl/` (đã `.gitignore`, không commit); không SSL thì đặt `KAFKA_SECURITY_PROTOCOL=PLAINTEXT`.
+- **Redis**: điền `REDIS_HOST`, `REDIS_PORT`... dùng để chống trùng tin.
 - `ES_HOST`, `END_POINT_API`, `API_KEY_GLOBAL` để trống thì spider bỏ qua bước cập nhật Elasticsearch / trạng thái profile.
 - Máy ra Internet qua proxy: `USE_PROXY=true`, `CRAWL_PROXY=http://...`.
 - Số trang, số tin, tốc độ crawl (`CHOTOT_MAX_PAGES`, `DOWNLOAD_DELAY`, `CONCURRENT_REQUESTS`...) chỉ cấu hình trong `.env`.
 
-## 4. Cài Docker (bỏ qua nếu đã có)
-
-```bash
-sudo apt -o Acquire::http::Proxy=$PROXY -o Acquire::https::Proxy=$PROXY update
-sudo apt -o Acquire::http::Proxy=$PROXY -o Acquire::https::Proxy=$PROXY install -y docker.io docker-compose-v2
-sudo usermod -aG docker $USER
-```
-
-Cho Docker tải image qua proxy:
-
-```bash
-sudo mkdir -p /etc/systemd/system/docker.service.d
-printf '[Service]\nEnvironment="HTTP_PROXY=%s"\nEnvironment="HTTPS_PROXY=%s"\nEnvironment="NO_PROXY=localhost,127.0.0.1"\n' $PROXY $PROXY \
-  | sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf
-printf '{\n  "registry-mirrors": ["https://mirror.gcr.io"],\n  "max-concurrent-downloads": 1,\n  "max-download-attempts": 10\n}\n' \
-  | sudo tee /etc/docker/daemon.json
-sudo systemctl daemon-reload && sudo systemctl restart docker
-```
-
-**Đăng xuất rồi đăng nhập lại Ubuntu** để nhận quyền docker, sau đó kiểm tra:
-
-```bash
-docker run --rm hello-world
-```
-
-## 5. Chạy Redis, Kafka
-
-Kafka chạy bằng user uid 1000, cần cấp quyền cho volume trước lần chạy đầu:
-
-```bash
-docker volume create chotot_kafka_data
-docker run --rm -v chotot_kafka_data:/data redis:7-alpine chown -R 1000:1000 /data
-docker compose up -d
-docker compose ps
-```
-
-Cả 3 container `chotot_redis`, `chotot_kafka`, `chotot_kafka_ui` phải ở trạng thái `Up`.
-
-Kafka UI: http://localhost:8080. Topic `chotot.ads` tự tạo khi có message đầu tiên, hoặc tạo tay trên Kafka UI (3 partitions, replication factor 1).
-
-## 6. Chạy crawler
+## 4. Chạy crawler
 
 Trên hệ thống Hydra/Crawlab, lệnh chạy chỉ là:
 
@@ -105,7 +65,7 @@ scrapy crawl chotot
 
 Tham số tùy chọn giống spider mẫu: `-a proxy=... -a topic=... -a check_lag=1`.
 
-Test local: đẩy profile giả vào topic input rồi chạy spider:
+Test trên Kafka dev: đẩy 1 profile test vào topic input rồi chạy spider, xem message ở topic output trên Kafka dev:
 
 ```bash
 python scripts/seed_profiles.py --pages 2
@@ -123,7 +83,7 @@ chotot/pipelines/                normalize → validation → redis_dedup → ka
 chotot/kafka_logging.py          gửi log [HYDRA-MONITOR] sang hydra-spider-log
 chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer
 chotot/extensions.py             ghi log ra file và thống kê
-scripts/seed_profiles.py         đẩy profile test vào Kafka
+scripts/seed_profiles.py         đẩy profile test vào topic input (Kafka dev)
 ```
 
 ## Lỗi thường gặp
@@ -133,7 +93,6 @@ scripts/seed_profiles.py         đẩy profile test vào Kafka
 | `scrapy: command not found` | Chưa kích hoạt venv: `source venv/bin/activate` |
 | `Total source: 0` | Topic input chưa có profile, hoặc group_id đã đọc hết message |
 | Lỗi SSL khi kết nối Kafka | Kiểm tra 3 file trong `chotot/ssl/` và `KAFKA_SECURITY_PROTOCOL` |
-| `permission denied ... docker.sock` | Chưa đăng xuất/đăng nhập lại sau khi thêm vào nhóm docker |
 
 # Luồng hoạt động
 
