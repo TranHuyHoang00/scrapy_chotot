@@ -81,9 +81,34 @@ Trên hệ thống Hydra/Crawlab, lệnh chạy chỉ là:
 scrapy crawl chotot
 ```
 
-Tham số tùy chọn giống spider mẫu: `-a proxy=... -a topic=... -a check_lag=1`.
+Tham số tùy chọn giống spider mẫu: `-a proxy=... -a topic=... -a check_lag=1`. Thêm `-a start_url=...` để chạy test không cần đọc Kafka input.
 
-Test trên Kafka dev: đẩy 1 profile test vào topic input rồi chạy spider, xem message ở topic output trên Kafka dev:
+### Test trên Kafka dev (qua API publish-message)
+
+Kafka dev là API HTTP, chỉ **đẩy** được message, không đọc được topic input. Đặt trong `.env`:
+
+```ini
+KAFKA_MODE=http
+KAFKA_HTTP_URL=<URL API publish-message của Kafka dev>
+KAFKA_HTTP_API_KEY=<API key>
+KAFKA_TOPIC_OUTPUT=hydra-update-account-info   # topic test
+KAFKA_LOGGING_ENABLED=false                    # không đẩy log HYDRA-MONITOR lên Kafka dev
+```
+
+Chạy (spider tự tạo 1 profile test, không đọc Kafka input):
+
+```bash
+docker compose up -d                     # Redis chống trùng
+scrapy crawl chotot -a start_url=https://www.chotot.com/mua-ban -s CLOSESPIDER_ITEMCOUNT=10
+```
+
+Message được gom theo lô `KAFKA_HTTP_BATCH_SIZE` (mặc định 50), lô cuối gửi khi spider kết thúc. Body gửi API: `{"topic": "...", "message": "[{...}, {...}]"}` (`message` là chuỗi JSON của mảng item Hydra).
+
+Tin đã gửi sẽ không gửi lại ở lần chạy sau (chống trùng). Muốn gửi lại thì xóa dữ liệu chống trùng trong Redis (mục 4).
+
+### Chạy với Kafka broker (Hydra)
+
+`KAFKA_MODE=broker`, điền `KAFKA_BOOTSTRAP_SERVERS` và chứng chỉ SSL. Spider đọc profile từ `KAFKA_TOPIC_INPUT`. Có thể đẩy 1 profile test vào topic input:
 
 ```bash
 python scripts/seed_profiles.py --pages 2
@@ -99,7 +124,7 @@ chotot/spiders/base.py           HydraBaseSpider: đọc profile Kafka, ES, sour
 chotot/spiders/chotot_spider.py  trang danh sách → trang chi tiết → AdItem
 chotot/pipelines/                normalize → validation → redis_dedup → kafka (format Hydra)
 chotot/kafka_logging.py          gửi log [HYDRA-MONITOR] sang hydra-spider-log
-chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer
+chotot/utils/                    kafka_sender (broker | http), kafka_producer (SSL), hydra, redis_client, normalizer
 chotot/extensions.py             ghi log ra file và thống kê
 scripts/seed_profiles.py         đẩy profile test vào topic input (Kafka dev)
 ```

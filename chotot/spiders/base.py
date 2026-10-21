@@ -17,7 +17,7 @@ import urllib3
 from scrapy import signals
 
 from chotot.kafka_logging import KafkaLoggingHandler
-from chotot.utils.hydra import now_ms
+from chotot.utils.hydra import make_test_profile, now_ms
 from chotot.utils.kafka_producer import make_consumer
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -26,8 +26,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class HydraBaseSpider(scrapy.Spider):
     name = None
 
-    def __init__(self, proxy=None, topic=None, ttl=None, domain=None, check_lag=None, *args, **kwargs):
+    def __init__(self, proxy=None, topic=None, ttl=None, domain=None, check_lag=None, start_url=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.arg_start_url = start_url
         self.arg_proxy = proxy
         self.arg_topic = topic
         self.ttl = ttl
@@ -112,8 +113,22 @@ class HydraBaseSpider(scrapy.Spider):
         except Exception as e:
             self.monitor("ERROR", f"Không tính được lag: {e}")
 
+    def load_profiles(self):
+        """Profile cần crawl.
+        - Có -a start_url=...: chạy test với 1 profile giả, không đọc Kafka.
+        - KAFKA_MODE=http: API chỉ đẩy được, không đọc được topic input → dùng CHOTOT_START_URL.
+        - Còn lại: đọc topic input như Hydra."""
+        if self.arg_start_url:
+            self.monitor("INFO", f"Chạy với start_url, không đọc Kafka input: {self.arg_start_url}")
+            return [make_test_profile(self.arg_start_url, name=self.name)]
+        if (self.settings.get("KAFKA_MODE") or "").lower() == "http":
+            url = self.settings.get("CHOTOT_START_URL")
+            self.monitor("WARNING", f"KAFKA_MODE=http không đọc được topic input, dùng CHOTOT_START_URL: {url}")
+            return [make_test_profile(url, name=self.name)]
+        return self.get_source()
+
     def start_requests(self):
-        profiles = self.get_source()
+        profiles = self.load_profiles()
         self.monitor("INFO", f"[Topic:{self.topic}] Total source: {len(profiles)}", tag="ITEM")
 
         for profile in profiles:

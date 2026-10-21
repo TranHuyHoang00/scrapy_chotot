@@ -121,6 +121,14 @@ USE_PROXY = env_bool("USE_PROXY", False)
 CRAWL_PROXY = env("CRAWL_PROXY")
 
 # ===== Kafka =====
+# broker: kết nối thẳng Kafka (Hydra) | http: gửi qua API publish-message (Kafka dev)
+KAFKA_MODE = env("KAFKA_MODE", "broker")
+KAFKA_HTTP_URL = env("KAFKA_HTTP_URL")
+KAFKA_HTTP_API_KEY = env("KAFKA_HTTP_API_KEY")
+KAFKA_HTTP_BATCH_SIZE = env_int("KAFKA_HTTP_BATCH_SIZE", 50)
+KAFKA_HTTP_TIMEOUT = env_int("KAFKA_HTTP_TIMEOUT", 30)
+KAFKA_HTTP_VERIFY_SSL = env_bool("KAFKA_HTTP_VERIFY_SSL", True)
+
 KAFKA_BOOTSTRAP_SERVERS = env_list("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_SECURITY_PROTOCOL = env("KAFKA_SECURITY_PROTOCOL", "SSL")
 KAFKA_SSL_CAFILE = env("KAFKA_SSL_CAFILE", "chotot/ssl/ca.pem")

@@ -14,7 +14,7 @@ from itemadapter import ItemAdapter
 from chotot.items import AdItem
 from chotot.pipelines.redis_dedup import unmark
 from chotot.utils.hydra import generate_key, iso_to_ms, now_ms
-from chotot.utils.kafka_producer import close_producer, make_producer
+from chotot.utils.kafka_sender import make_sender
 
 LIST_FIELDS = ("images", "videos")
 DICT_FIELDS = ("specs", "specs_labels", "location", "seller")
@@ -70,7 +70,7 @@ class HydraKafkaPipeline:
         self.settings = settings
         self.topic = settings.get("KAFKA_TOPIC_OUTPUT")
         self.stats = stats
-        self.producer = None
+        self.sender = None
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -81,27 +81,31 @@ class HydraKafkaPipeline:
             self.stats.inc_value(f"kafka/{name}")
 
     def open_spider(self, spider=None):
-        self.producer = make_producer(self.settings)
+        self.sender = make_sender(self.settings)
         logging.getLogger("kafka").setLevel(logging.ERROR)
-        logger.info("Kafka topic output: %s", self.topic)
+        logger.info("Kafka (%s) topic output: %s", self.settings.get("KAFKA_MODE", "broker"), self.topic)
 
     def process_item(self, item, spider=None):
         if "item_data" not in item:
             return item
-        if self.producer is None:
-            self.producer = make_producer(self.settings)
+        if self.sender is None:
+            self.sender = make_sender(self.settings)
 
         message = build_message(item["item_data"])
         site = message["data"].get("site")
         post_id = message["post_id"]
 
-        future = self.producer.send(self.topic, value=message, key=post_id)
-        future.add_callback(self._on_success)
-        future.add_errback(self._on_error, site, post_id)
         self._inc("sent")
+        self.sender.send(
+            self.topic,
+            message,
+            key=post_id,
+            on_success=self._on_success,
+            on_error=lambda exc: self._on_error(site, post_id, exc),
+        )
         return item
 
-    def _on_success(self, metadata):
+    def _on_success(self):
         self._inc("delivered")
 
     def _on_error(self, site, post_id, exc):
@@ -110,6 +114,7 @@ class HydraKafkaPipeline:
         logger.error("[HYDRA-MONITOR] Gửi Kafka thất bại %s:%s - %s", site, post_id, exc)
 
     def close_spider(self, spider=None):
-        close_producer(self.producer)
-        self.producer = None
-        logger.info("Đã đóng Kafka producer")
+        if self.sender is not None:
+            self.sender.close()  # http: gửi nốt các message còn trong lô
+        self.sender = None
+        logger.info("Đã đóng Kafka sender")

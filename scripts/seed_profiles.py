@@ -1,4 +1,7 @@
-"""Đẩy 1 profile test vào Kafka topic input (dùng với Kafka dev).
+"""Đẩy 1 profile test vào Kafka topic input (chỉ có ích với KAFKA_MODE=broker).
+
+Với Kafka dev qua API (KAFKA_MODE=http) spider không đọc được topic input,
+hãy chạy thẳng: scrapy crawl chotot -a start_url=https://www.chotot.com/mua-ban
 
 Trên hệ thống thật, profile do Hydra scheduler đẩy vào topic
 hydra-profile-scheduler-chotot; không cần chạy script này.
@@ -12,7 +15,6 @@ Cách dùng (chạy tại thư mục gốc dự án):
 """
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -25,25 +27,8 @@ os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "chotot.settings")
 
 from scrapy.utils.project import get_project_settings  # noqa: E402
 
-from chotot.utils.kafka_producer import close_producer, make_producer  # noqa: E402
-
-TEST_TENANT = {"id": "test", "name": "Test", "project": "test", "category_ids": []}
-
-
-def build_profile(url, max_pages, max_items_per_page):
-    profile_id = hashlib.md5(url.encode("utf-8")).hexdigest()
-    return {
-        "profile_id": profile_id,
-        "id": profile_id,
-        "url": url,
-        "seed_url": url,
-        "name": "chotot",
-        "type": "page",
-        "channel_name": "chotot",
-        "tenants": [TEST_TENANT],
-        "max_pages": max_pages,
-        "max_items_per_page": max_items_per_page,
-    }
+from chotot.utils.hydra import make_test_profile  # noqa: E402
+from chotot.utils.kafka_sender import make_sender  # noqa: E402
 
 
 def main():
@@ -55,7 +40,7 @@ def main():
 
     settings = get_project_settings()
     topic = settings.get("KAFKA_TOPIC_INPUT")
-    profile = build_profile(
+    profile = make_test_profile(
         settings.get("CHOTOT_START_URL"),
         args.pages or settings.getint("CHOTOT_MAX_PAGES"),
         args.items,
@@ -66,9 +51,9 @@ def main():
         print(f"\n[dry-run] profile sẽ được đẩy vào topic '{topic}'")
         return
 
-    producer = make_producer(settings)
-    producer.send(topic, value=profile, key=profile["profile_id"])
-    close_producer(producer)
+    sender = make_sender(settings)
+    sender.send(topic, profile, key=profile["profile_id"])
+    sender.close()
     print(f"Đã đẩy profile {profile['url']} ({profile['max_pages']} trang) vào topic '{topic}'")
 
 

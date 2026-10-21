@@ -29,3 +29,26 @@ def get_ad(item):
     if isinstance(item, dict) and "item_data" in item:
         return item["item_data"]["data"]
     return item
+
+
+TEST_TENANT = {"id": "test", "name": "Test", "project": "test", "category_ids": []}
+
+
+def make_test_profile(url, max_pages=None, max_items_per_page=None, name="chotot"):
+    """Profile giả dùng khi test (không lấy từ Hydra scheduler)."""
+    profile_id = hashlib.md5(url.encode("utf-8")).hexdigest()
+    profile = {
+        "profile_id": profile_id,
+        "id": profile_id,
+        "url": url,
+        "seed_url": url,
+        "name": name,
+        "type": "page",
+        "channel_name": name,
+        "tenants": [TEST_TENANT],
+    }
+    if max_pages is not None:
+        profile["max_pages"] = max_pages
+    if max_items_per_page is not None:
+        profile["max_items_per_page"] = max_items_per_page
+    return profile
