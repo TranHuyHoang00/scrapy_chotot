@@ -5,9 +5,8 @@ chotot, xe.chotot, vieclamtot dùng chung cấu trúc:
 Mỗi site chỉ cần kế thừa BaseAdParser và bổ sung phần riêng trong extra().
 """
 
-from datetime import datetime, timezone
-
 from chotot.items import AdItem
+from chotot.utils.hydra import now_ms
 
 # chotot.com có cả 2 đường dẫn; xe.chotot, vieclamtot chỉ có đường đầu
 AD_INFO_PATHS = (
@@ -53,9 +52,6 @@ def to_float(value):
     except (TypeError, ValueError):
         return None
 
-
-def now_ms():
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
 class BaseAdParser:

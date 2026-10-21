@@ -35,15 +35,8 @@ def redis_url():
 def get_redis():
     return redis.Redis(
         **redis_config(),
-        decode_responses=True,      
+        decode_responses=True,
         socket_connect_timeout=5,
         socket_timeout=5,
         health_check_interval=30,
     )
-
-
-def check_connection():
-    try:
-        return get_redis().ping()
-    except redis.RedisError:
-        return False

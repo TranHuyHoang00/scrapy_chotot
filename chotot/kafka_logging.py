@@ -1,6 +1,5 @@
 """Gửi log có tag [HYDRA-MONITOR] sang Kafka (topic hydra-spider-log), giống spider mẫu."""
 
-import json
 import logging
 import os
 import sys

@@ -18,7 +18,7 @@ from scrapy import signals
 
 from chotot.kafka_logging import KafkaLoggingHandler
 from chotot.utils.config_loader import ConfigError, load_spider_settings
-from chotot.utils.hydra import generate_key, now_ms
+from chotot.utils.hydra import now_ms
 from chotot.utils.kafka_producer import make_consumer
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -222,7 +222,3 @@ class HydraBaseSpider(scrapy.Spider):
         self.monitor("ERROR", f"[{profile.get('profile_id')}] Request lỗi {request.url}: {failure.getErrorMessage()}")
         if status and 400 <= status < 500:
             self.update_status_source(profile.get("profile_id"), ["dead"], once=True)
-
-    @staticmethod
-    def generateKey(unique_string):
-        return generate_key(unique_string)

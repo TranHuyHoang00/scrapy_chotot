@@ -9,7 +9,6 @@ Mọi thông số đọc từ Scrapy settings (xem chotot/settings.py):
 import json
 
 from kafka import KafkaConsumer, KafkaProducer
-from kafka.errors import KafkaError
 
 
 def _api_version(settings):
@@ -76,14 +75,3 @@ def close_producer(producer):
     finally:
         producer.close()
 
-
-def check_connection(settings, topic):
-    producer = None
-    try:
-        producer = make_producer(settings)
-        return bool(producer.partitions_for(topic))
-    except KafkaError:
-        return False
-    finally:
-        if producer is not None:
-            producer.close()
