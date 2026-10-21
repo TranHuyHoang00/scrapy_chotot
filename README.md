@@ -12,7 +12,8 @@ Kafka (hydra-profile-scheduler-chotot) → Spider → Pipeline (chuẩn hóa →
 ## Yêu cầu
 
 - Ubuntu/Linux, Python 3.12+, Git
-- Kafka dev, Redis của team (không chạy Kafka/Redis local)
+- Kafka dev của team
+- Docker (chỉ để chạy Redis local, khi chưa có Redis dev)
 - Proxy (ví dụ dùng `http://172.20.148.40:3128`, thay bằng proxy của bạn)
 
 Đặt biến proxy để dùng cho các lệnh bên dưới:
@@ -50,12 +51,29 @@ cp .env.example .env
 Toàn bộ địa chỉ máy chủ, key, mật khẩu đọc từ biến môi trường, **không ghi trong code**. Trên Crawlab, khai báo các biến trong `.env.example` ở phần Environment của spider.
 
 - **Kafka**: điền `KAFKA_BOOTSTRAP_SERVERS` của Kafka dev (khi test) hoặc Kafka Hydra (khi chạy thật). Kafka dùng SSL thì đặt `ca.pem`, `key.pem`, `certificate.pem` vào `chotot/ssl/` (đã `.gitignore`, không commit); không SSL thì đặt `KAFKA_SECURITY_PROTOCOL=PLAINTEXT`.
-- **Redis**: điền `REDIS_HOST`, `REDIS_PORT`... dùng để chống trùng tin.
+- **Redis** (chống trùng tin): chưa có Redis dev thì chạy Redis local (mục 4), giữ `REDIS_HOST=localhost`, `REDIS_PORT=6379`.
 - `ES_HOST`, `END_POINT_API`, `API_KEY_GLOBAL` để trống thì spider bỏ qua bước cập nhật Elasticsearch / trạng thái profile.
 - Máy ra Internet qua proxy: `USE_PROXY=true`, `CRAWL_PROXY=http://...`.
 - Số trang, số tin, tốc độ crawl (`CHOTOT_MAX_PAGES`, `DOWNLOAD_DELAY`, `CONCURRENT_REQUESTS`...) chỉ cấu hình trong `.env`.
 
-## 4. Chạy crawler
+## 4. Chạy Redis local
+
+Chỉ cần khi chưa có Redis dev. `docker-compose.yml` chỉ chứa Redis.
+
+```bash
+docker compose up -d
+docker compose ps          # chotot_redis phải ở trạng thái Up (healthy)
+```
+
+Dữ liệu chống trùng lưu trong volume `redis_data`, tắt máy không mất. Muốn crawl lại từ đầu (gửi lại mọi tin):
+
+```bash
+docker exec chotot_redis redis-cli --scan --pattern 'dedup:*' | xargs -r docker exec -i chotot_redis redis-cli del
+```
+
+Máy cần proxy để tải image: cấu hình proxy cho Docker daemon (`/etc/systemd/system/docker.service.d/http-proxy.conf`).
+
+## 5. Chạy crawler
 
 Trên hệ thống Hydra/Crawlab, lệnh chạy chỉ là:
 
@@ -91,6 +109,7 @@ scripts/seed_profiles.py         đẩy profile test vào topic input (Kafka dev
 | Lỗi | Cách xử lý |
 |---|---|
 | `scrapy: command not found` | Chưa kích hoạt venv: `source venv/bin/activate` |
+| `ConnectionError` Redis | Chưa chạy Redis: `docker compose up -d` |
 | `Total source: 0` | Topic input chưa có profile, hoặc group_id đã đọc hết message |
 | Lỗi SSL khi kết nối Kafka | Kiểm tra 3 file trong `chotot/ssl/` và `KAFKA_SECURITY_PROTOCOL` |
 

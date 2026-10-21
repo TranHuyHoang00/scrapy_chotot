@@ -1,0 +1,22 @@
+# Redis local để chống trùng tin khi chưa có Redis dev của team.
+# Kafka dùng Kafka dev của team, không chạy local.
+name: chotot
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: chotot_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:
