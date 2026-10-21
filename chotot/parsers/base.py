@@ -139,7 +139,8 @@ class BaseAdParser:
             "name": ad.get("full_name") or ad.get("account_name"),
             "avatar": ad.get("avatar"),
             "is_company": bool(ad.get("company_ad")),  # không có trường = người đăng cá nhân
-            "phone_masked": ad.get("phone"),  # số đầy đủ không có trong __NEXT_DATA__
+            # __NEXT_DATA__ chỉ có số đã che; số đầy đủ do spider điền sau qua API (utils/phone_api.py)
+            "phone": None,
         }
 
     def specs(self, ad_params):

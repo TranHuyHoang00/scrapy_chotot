@@ -1,10 +1,15 @@
 import json
 
 import scrapy
+from scrapy.exceptions import CloseSpider
 from w3lib.url import add_or_replace_parameter
 
 from chotot.parsers import ALLOWED_DOMAINS, get_parser
 from chotot.spiders.base import HydraBaseSpider
+from chotot.utils.hydra import get_ad
+from chotot.utils.phone_api import PhoneApi, PhoneAuthError
+
+PHONE_AUTH_ERROR_REASON = "phone_api_auth_error"
 
 AD_LINK_REGEX = r"^[^#?]*/\d+\.htm"
 
@@ -23,6 +28,11 @@ class ChototSpider(HydraBaseSpider):
 
     name = "chotot"
     allowed_domains = ALLOWED_DOMAINS
+
+    def setup_hydra(self):
+        super().setup_hydra()
+        self.phone_api = PhoneApi.from_crawler(self.crawler)  # None nếu PHONE_API_ENABLED=false
+        self.phone_auth_failed = False
 
     def _inc(self, name):
         self.crawler.stats.inc_value(f"chotot/{name}")
@@ -120,4 +130,51 @@ class ChototSpider(HydraBaseSpider):
             return
 
         self._inc(f"{parser.site}/parsed")
-        yield self.build_item_data(profile, item["url"], item["ad_id"], item)
+        envelope = self.build_item_data(profile, item["url"], item["ad_id"], item)
+
+        if self.phone_api is None or not item.get("ad_id"):
+            yield envelope
+            return
+        if self.phone_auth_failed:  # token đã lỗi, spider đang dừng: bỏ tin để lần sau crawl lại đủ số
+            return
+
+        phone = self.phone_api.get_cached(item["site"], item["ad_id"])
+        if phone:
+            item["seller"]["phone"] = phone
+            yield envelope
+            return
+
+        # Gọi API phone bất đồng bộ, item được gửi đi ở parse_phone / phone_failed
+        yield self.phone_api.build_request(
+            item["ad_id"],
+            callback=self.parse_phone,
+            errback=self.phone_failed,
+            meta=self.request_meta(profile, envelope=envelope),
+        )
+
+    # ----------------------------------------------------------- số điện thoại
+
+    def parse_phone(self, response):
+        envelope = response.meta["envelope"]
+        ad = get_ad(envelope)
+        try:
+            ad["seller"]["phone"] = self.phone_api.parse_response(response, ad["site"])
+        except PhoneAuthError as e:
+            # Không gửi tin này: chưa đánh dấu chống trùng nên lần chạy sau sẽ crawl lại đủ số
+            if not self.phone_auth_failed:
+                self.phone_auth_failed = True
+                self.monitor(
+                    "ERROR",
+                    f"Token API phone hết hạn hoặc không hợp lệ ({e}). Dừng spider, cập nhật PHONE_API_TOKEN",
+                    tag="PHONE",
+                )
+            raise CloseSpider(PHONE_AUTH_ERROR_REASON)
+        yield envelope
+
+    def phone_failed(self, failure):
+        """Lỗi mạng/timeout khi gọi API phone: vẫn gửi tin với phone = null."""
+        envelope = failure.request.meta["envelope"]
+        if self.phone_auth_failed:
+            return
+        self.phone_api.on_failure(failure, get_ad(envelope)["site"])
+        yield envelope

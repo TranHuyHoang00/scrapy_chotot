@@ -5,6 +5,7 @@ Spider Scrapy thu thập tin đăng của hệ Chợ Tốt: **chotot.com, xe.cho
 ```
 Kafka input (profile) ─▶ Spider ─▶ Pipeline ─▶ Kafka output (tin đăng)
                           │         normalize → validation → chống trùng (Redis) → gửi Kafka
+                          ├─ lấy số điện thoại đầy đủ (API phone, cache Redis)
                           ├─ cập nhật crawled_time (Elasticsearch)
                           ├─ cập nhật source_status (API profile)
                           └─ log [HYDRA-MONITOR] ─▶ Kafka (hydra-spider-log)
@@ -122,7 +123,10 @@ KAFKA_LOGGING_ENABLED=false
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# Proxy, nếu máy cần
+# API lấy số điện thoại đầy đủ
+PHONE_API_TOKEN=<Bearer token>
+
+# Proxy, nếu máy cần (dùng cho cả crawl web và API phone)
 USE_PROXY=true
 CRAWL_PROXY=http://172.20.148.40:3128
 ```
@@ -141,6 +145,8 @@ REDIS_HOST=<redis của team>
 ES_HOST=<elasticsearch>
 END_POINT_API=<api profile>
 API_KEY_GLOBAL=<api key>
+
+PHONE_API_TOKEN=<Bearer token>
 ```
 
 Đặt 3 file chứng chỉ Kafka vào `chotot/ssl/`: `ca.pem`, `key.pem`, `certificate.pem`. Thư mục này đã được `.gitignore`.
@@ -171,6 +177,18 @@ API_KEY_GLOBAL=<api key>
 | `ES_HOST` | trống | Elasticsearch để ghi `crawled_time`. Trống thì bỏ qua |
 | `END_POINT_API`, `API_KEY_GLOBAL` | trống | API cập nhật trạng thái profile (alive, dead). Trống thì bỏ qua |
 
+**API số điện thoại** (xem [10.5](#105-số-điện-thoại-api-phone))
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `PHONE_API_ENABLED` | `true` | Gọi API lấy số đầy đủ. `false` thì `seller.phone = null` |
+| `PHONE_API_URL` | `https://gateway.chotot.com/v1/private/ad-listing/phone` | Endpoint API, gọi `GET ?e=<ad_id>` |
+| `PHONE_API_TOKEN` | trống | Bearer token. **Bắt buộc** khi `PHONE_API_ENABLED=true` |
+| `PHONE_API_TIMEOUT` | `15` | Số giây chờ API phản hồi |
+| `PHONE_API_DELAY` | `1.5` | Số giây nghỉ giữa 2 lần gọi API (AutoThrottle có thể tự tăng) |
+| `PHONE_API_CONCURRENCY` | `2` | Số request API song song tối đa |
+| `PHONE_CACHE_TTL_HOURS` | `168` | Giữ số đã lấy trong Redis bao nhiêu giờ (khỏi gọi lại API), `0` = không cache |
+
 **Crawl**
 
 | Biến | Mặc định | Ý nghĩa |
@@ -185,7 +203,7 @@ API_KEY_GLOBAL=<api key>
 | `CONCURRENT_REQUESTS` | `8` | Số request song song tối đa (tổng) |
 | `CONCURRENT_REQUESTS_PER_DOMAIN` | `4` | Số request song song tối đa cho mỗi domain |
 
-Proxy chỉ áp dụng cho request crawl web. Kafka, Redis, Elasticsearch, API profile luôn kết nối trực tiếp.
+Proxy áp dụng cho request crawl web và API phone. Kafka, Redis, Elasticsearch, API profile luôn kết nối trực tiếp.
 
 **Log**
 
@@ -303,6 +321,7 @@ Item: 10 hợp lệ, 2 bị loại
   - Loại vì chotot/missing_title: 2
 Chống trùng: 10 mới, 0 cập nhật, 0 trùng
 Kafka: 10 gửi, 10 thành công, 0 thất bại
+API phone: 8 gọi, 7 có số, 1 không có số, 0 lỗi, 2 lấy từ cache
 Theo site:
   - chotot: 6
   - xe: 4
@@ -336,6 +355,12 @@ Redis lưu dấu vân tay của mỗi tin đã gửi trong các key `dedup:<site
 | `dedup:vieclamtot` | tin vieclamtot.com |
 
 Tin có trong Redis và nội dung không đổi sẽ **không được gửi lại**. Muốn gửi lại (vd test lại việc đẩy Kafka) thì xóa dữ liệu này.
+
+Ngoài ra, số điện thoại lấy từ API được cache trong các key `phone:<site>:<ad_id>`, tự hết hạn sau `PHONE_CACHE_TTL_HOURS` giờ. Muốn gọi lại API cho mọi tin thì xóa cache này:
+
+```bash
+docker exec chotot_redis redis-cli --scan --pattern 'phone:*' | xargs -r docker exec -i chotot_redis redis-cli del
+```
 
 **Xem số tin đã lưu:**
 
@@ -407,6 +432,9 @@ Dòng bắt đầu bằng `<` là biến có trong `.env.example` mà `.env` ch�
 | Không tải được trang nào (timeout, connection refused) | Máy cần proxy: `USE_PROXY=true`, `CRAWL_PROXY=...` |
 | `Chống trùng: 0 mới, ... N trùng`, Kafka 0 gửi | Tin đã gửi ở lần trước. Xóa dữ liệu chống trùng (mục 7) |
 | `Không có __NEXT_DATA__` / `Không có dữ liệu tin` | Trang bị chặn (vd Cloudflare với nhatot) hoặc tin đã bị ẩn |
+| `PHONE_API_ENABLED=true cần PHONE_API_TOKEN` | Thiếu `PHONE_API_TOKEN` trong `.env`. Không cần số điện thoại thì đặt `PHONE_API_ENABLED=false` |
+| `Token API phone hết hạn hoặc không hợp lệ`, spider dừng | API trả 401/403: cập nhật `PHONE_API_TOKEN` rồi chạy lại. Tin chưa lấy được số không bị đánh dấu chống trùng, lần sau được crawl lại |
+| `API phone: ... N lỗi` nhiều | API chậm hoặc bị giới hạn tần suất: tăng `PHONE_API_DELAY`, giảm `PHONE_API_CONCURRENCY`, kiểm tra proxy |
 | `Chưa có parser cho domain` | Link tin thuộc domain mới, cần thêm parser (mục 10.3) |
 | `cannot import name 'classproperty' from 'kafka.util'` | Cài lẫn 2 thư viện Kafka. Chạy: `pip uninstall -y kafka-python kafka-python-ng` rồi `pip install -r requirements.txt` |
 | `permission denied ... docker.sock` | Chưa đăng xuất/đăng nhập lại sau khi thêm user vào nhóm docker |
@@ -430,6 +458,7 @@ Trường profile dùng đến: `profile_id`, `seed_url`/`url`, `name`, `type`, 
    Link có thể thuộc xe.chotot.com, nhatot.com, vieclamtot.com.
    Trang 1 có tin thì profile được đánh dấu `crawled, alive` (1 lần/lượt chạy); trang 1 lỗi 4xx thì `dead`.
 3. **Trang chi tiết**: chọn parser theo domain, đọc JSON trong `<script id="__NEXT_DATA__">` (`props.initialState.adView.adInfo`), tạo `AdItem` theo schema chung.
+4. **Số điện thoại**: gọi API phone để điền `seller.phone` rồi mới đưa tin vào pipeline (mục 10.5).
 
 ### 10.3. Parser từng site
 
@@ -453,13 +482,34 @@ Thêm site mới: viết 1 class kế thừa `BaseAdParser` trong `chotot/parser
 
 Gửi Kafka thất bại thì dấu vân tay của tin bị xóa khỏi Redis, lần chạy sau tin được gửi lại.
 
-### 10.5. Gửi Kafka
+### 10.5. Số điện thoại (API phone)
+
+`__NEXT_DATA__` chỉ có số đã che (`097567****`), nên số đầy đủ lấy qua API riêng. Toàn bộ phần gọi API nằm trong `chotot/utils/phone_api.py`; đổi API thì chỉ sửa file này.
+
+```
+GET PHONE_API_URL?e=<ad_id>          ad_id = ID trên URL tin, vd .../135193883.htm → e=135193883
+Authorization: Bearer PHONE_API_TOKEN
+→ {"phone": "0523149999"}
+```
+
+- Dùng chung cho mọi site (chotot, xe, nhatot, vieclamtot).
+- Gọi **bất đồng bộ** qua Scrapy (không chặn crawl), đi qua proxy giống crawl web. Tốc độ riêng cho `gateway.chotot.com`: `PHONE_API_DELAY`, `PHONE_API_CONCURRENCY`.
+- Số lấy được cache trong Redis `phone:<site>:<ad_id>` (`PHONE_CACHE_TTL_HOURS`); tin đã có trong cache không gọi API lại.
+- Kết quả:
+
+| Trường hợp | Xử lý |
+|---|---|
+| Có số | `seller.phone = "0523149999"`, gửi tin |
+| Không có số, HTTP lỗi khác 401/403, lỗi mạng/timeout (sau khi retry) | `seller.phone = null`, **vẫn gửi tin**. Lần sau lấy được số thì chống trùng thấy nội dung đổi và gửi bản mới |
+| 401/403 (token hết hạn/sai) | Log `[HYDRA-MONITOR]` ERROR, **dừng spider** (lý do `phone_api_auth_error`). Tin chưa có số không được gửi để lần sau crawl lại |
+
+### 10.6. Gửi Kafka
 
 - `KAFKA_MODE=http`: gom message theo lô `KAFKA_HTTP_BATCH_SIZE`, gọi
   `POST KAFKA_HTTP_URL?apikey=KAFKA_HTTP_API_KEY` với body `{"topic": "...", "message": "[{...}, {...}]"}`. `message` là **chuỗi JSON** của mảng message. Lô cuối gửi khi spider kết thúc.
 - `KAFKA_MODE=broker`: gửi thẳng Kafka broker, mỗi tin 1 message, key là `post_id`.
 
-### 10.6. Message gửi Kafka
+### 10.7. Message gửi Kafka
 
 ```json
 {
@@ -475,7 +525,7 @@ Gửi Kafka thất bại thì dấu vân tay của tin bị xóa khỏi Redis, l
                   "ward": "Phường Dịch Vọng", "ward_v3": "Phường Cầu Giấy", "lat": 21.03, "lng": 105.79 },
     "posted_at": 1715228380000, "updated_at": 1791591150185, "crawled_at": 1792488483196,
     "images": ["..."], "videos": [],
-    "seller": { "account_id": 19441973, "name": "Henry Shop", "is_company": true, "phone_masked": "097567****" },
+    "seller": { "account_id": 19441973, "name": "Henry Shop", "is_company": true, "phone": "0975671234" },
     "specs": { "tablet_brand": "Apple", "tablet_capacity": "128 GB" },
     "specs_labels": { "tablet_brand": "Hãng", "tablet_capacity": "Dung lượng" }
   },
@@ -495,7 +545,7 @@ Gửi Kafka thất bại thì dấu vân tay của tin bị xóa khỏi Redis, l
 
 Thời gian là timestamp **mili giây**. `created_time` là lúc đăng tin lần đầu (`flag_crawl_created_time = 1`); không có thì lấy lúc crawl (`= 0`). `updated_time` là lần đẩy tin gần nhất.
 
-### 10.7. Schema `data` (AdItem)
+### 10.8. Schema `data` (AdItem)
 
 | Trường | Ý nghĩa |
 |---|---|
@@ -507,10 +557,10 @@ Thời gian là timestamp **mili giây**. `created_time` là lúc đăng tin l�
 | `location` | `address, city, city_v3, district, ward, ward_v3, region_id, area_id, ward_id, lat, lng` (+ `street` ở nhatot). `*_v3`: tên sau sáp nhập địa giới |
 | `posted_at`, `updated_at`, `crawled_at` | ms: đăng lần đầu, lần đẩy tin gần nhất, lúc crawl |
 | `images`, `videos` | |
-| `seller` | `account_id, account_oid, name, avatar, is_company, phone_masked` + phần riêng từng site |
+| `seller` | `account_id, account_oid, name, avatar, is_company, phone` + phần riêng từng site. `phone`: số đầy đủ từ API phone, `null` nếu không lấy được |
 | `specs`, `specs_labels` | thông số `{id: giá trị}` và `{id: nhãn tiếng Việt}` |
 
-Số điện thoại đầy đủ không có trong `__NEXT_DATA__`, chỉ có dạng che `097567****`.
+Số điện thoại đầy đủ không có trong `__NEXT_DATA__` (chỉ có dạng che `097567****`), nên `seller.phone` được lấy qua API phone (mục 10.5).
 
 ---
 
@@ -540,6 +590,7 @@ scrapy_chotot/
     │   ├── kafka_sender.py       gửi Kafka: broker | http
     │   ├── kafka_producer.py     kết nối Kafka broker (SSL)
     │   ├── redis_client.py       kết nối Redis
+    │   ├── phone_api.py          gọi API lấy số điện thoại đầy đủ, cache Redis
     │   ├── hydra.py              hàm tiện ích Hydra (entry_rowkey, thời gian, profile test)
     │   └── normalizer.py         làm sạch chữ
     ├── kafka_logging.py          gửi log [HYDRA-MONITOR] lên Kafka

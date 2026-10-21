@@ -154,3 +154,22 @@ ES_INDEX_CRAWLED_TIME = env("ES_INDEX_CRAWLED_TIME", "hydra-profiles")
 END_POINT_API = env("END_POINT_API")                  # trống = bỏ qua cập nhật source_status
 API_KEY_GLOBAL = env("API_KEY_GLOBAL")
 HYDRA_CRAWLER_SYSTEM = env("HYDRA_CRAWLER_SYSTEM", "api-crawler")
+
+# ===== API lấy số điện thoại đầy đủ (chotot/utils/phone_api.py) =====
+# Đi qua proxy giống crawl web (USE_PROXY / CRAWL_PROXY)
+PHONE_API_ENABLED = env_bool("PHONE_API_ENABLED", True)
+PHONE_API_URL = env("PHONE_API_URL", "https://gateway.chotot.com/v1/private/ad-listing/phone")
+PHONE_API_TOKEN = env("PHONE_API_TOKEN")                # Bearer token, không commit
+PHONE_API_TIMEOUT = env_int("PHONE_API_TIMEOUT", 15)
+PHONE_API_DELAY = env_float("PHONE_API_DELAY", 1.5)     # giây nghỉ giữa 2 lần gọi API
+PHONE_API_CONCURRENCY = env_int("PHONE_API_CONCURRENCY", 2)
+PHONE_CACHE_TTL_HOURS = env_int("PHONE_CACHE_TTL_HOURS", 168)  # cache số trong Redis, 0 = tắt
+
+# Tốc độ riêng cho domain API, tách khỏi tốc độ crawl web
+DOWNLOAD_SLOTS = {
+    "gateway.chotot.com": {
+        "concurrency": PHONE_API_CONCURRENCY,
+        "delay": PHONE_API_DELAY,
+        "randomize_delay": True,
+    },
+}

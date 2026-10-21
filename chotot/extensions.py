@@ -18,6 +18,7 @@ REASONS = {
     "closespider_itemcount": "đủ số item mục tiêu",
     "closespider_timeout": "hết thời gian cho phép",
     "shutdown": "người dùng dừng",
+    "phone_api_auth_error": "token API phone hết hạn hoặc không hợp lệ",
 }
 
 
@@ -95,6 +96,10 @@ class CrawlMonitor:
         )
         self.logger.info("Redis: %s", mask_url(s.get("REDIS_URL")))
         self.logger.info(
+            "API phone: %s",
+            f"bật, cache {s.getint('PHONE_CACHE_TTL_HOURS')} giờ" if s.getbool("PHONE_API_ENABLED") else "tắt",
+        )
+        self.logger.info(
             "Kafka topic: input %s → output %s", s.get("KAFKA_TOPIC_INPUT"), s.get("KAFKA_TOPIC_OUTPUT")
         )
 
@@ -146,6 +151,12 @@ class CrawlMonitor:
             self._get("dedup/new"), self._get("dedup/updated"), self._get("dedup/duplicate"),
         )
         self.logger.info("Kafka: %d gửi, %d thành công, %d thất bại", sent, delivered, failed)
+        if self.settings.getbool("PHONE_API_ENABLED"):
+            self.logger.info(
+                "API phone: %d gọi, %d có số, %d không có số, %d lỗi, %d lấy từ cache",
+                self._get("phone_api/request"), self._get("phone_api/ok"), self._get("phone_api/no_phone"),
+                self._get("phone_api/error"), self._get("phone_api/cache_hit"),
+            )
 
         categories = self._with_prefix("monitor/site/")
         if categories:
@@ -153,6 +164,8 @@ class CrawlMonitor:
             for name, count in categories:
                 self.logger.info("  - %s: %d", name, count)
 
+        if reason == "phone_api_auth_error":
+            self.logger.error("Spider dừng vì token API phone hết hạn hoặc không hợp lệ: cập nhật PHONE_API_TOKEN")
         if forbidden:
             self.logger.warning("Có %d URL bị robots.txt chặn, kiểm tra lại nguồn URL", forbidden)
         if sent != delivered + failed:

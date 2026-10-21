@@ -40,7 +40,7 @@ class AdItem(scrapy.Item):
     images = scrapy.Field()
     videos = scrapy.Field()
 
-    # Người đăng: {account_id, account_oid, name, avatar, is_company, phone_masked,
+    # Người đăng: {account_id, account_oid, name, avatar, is_company, phone (số đầy đủ qua API),
     #              shop_name, company_name, rating, total_rating, ...}
     seller = scrapy.Field()
 
