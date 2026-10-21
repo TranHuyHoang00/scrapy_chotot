@@ -4,4 +4,3 @@ kafka-python-ng
 elasticsearch>=8,<9
 requests
 python-dotenv
-pyyaml

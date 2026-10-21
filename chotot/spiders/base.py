@@ -17,7 +17,6 @@ import urllib3
 from scrapy import signals
 
 from chotot.kafka_logging import KafkaLoggingHandler
-from chotot.utils.config_loader import ConfigError, load_spider_settings
 from chotot.utils.hydra import now_ms
 from chotot.utils.kafka_producer import make_consumer
 
@@ -38,15 +37,6 @@ class HydraBaseSpider(scrapy.Spider):
         self.status_sent = set()
 
     # ------------------------------------------------------------------ setup
-
-    @classmethod
-    def update_settings(cls, settings):
-        super().update_settings(settings)
-        if cls.name:
-            try:
-                settings.setdict(load_spider_settings(cls.name), priority="spider")
-            except ConfigError:
-                pass  # không có config/<tên>/_common.yaml thì dùng settings.py
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):

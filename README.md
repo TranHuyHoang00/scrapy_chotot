@@ -53,6 +53,7 @@ Toàn bộ địa chỉ máy chủ, key, mật khẩu đọc từ biến môi tr
 - **Test local** bằng docker-compose: đặt `KAFKA_SECURITY_PROTOCOL=PLAINTEXT`, `KAFKA_BOOTSTRAP_SERVERS=localhost:9092`.
 - `ES_HOST`, `END_POINT_API`, `API_KEY_GLOBAL` để trống thì spider bỏ qua bước cập nhật Elasticsearch / trạng thái profile.
 - Máy ra Internet qua proxy: `USE_PROXY=true`, `CRAWL_PROXY=http://...`.
+- Số trang, số tin, tốc độ crawl (`CHOTOT_MAX_PAGES`, `DOWNLOAD_DELAY`, `CONCURRENT_REQUESTS`...) chỉ cấu hình trong `.env`.
 
 ## 4. Cài Docker (bỏ qua nếu đã có)
 
@@ -120,9 +121,8 @@ chotot/spiders/base.py           HydraBaseSpider: đọc profile Kafka, ES, sour
 chotot/spiders/chotot_spider.py  trang danh sách → trang chi tiết → AdItem
 chotot/pipelines/                normalize → validation → redis_dedup → kafka (format Hydra)
 chotot/kafka_logging.py          gửi log [HYDRA-MONITOR] sang hydra-spider-log
-chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer, config_loader
+chotot/utils/                    kafka_producer (SSL), hydra, redis_client, normalizer
 chotot/extensions.py             ghi log ra file và thống kê
-config/chotot/_common.yaml       settings Scrapy riêng của spider (delay, concurrency)
 scripts/seed_profiles.py         đẩy profile test vào Kafka
 ```
 
