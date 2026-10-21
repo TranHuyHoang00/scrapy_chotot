@@ -73,14 +73,23 @@ def clean_phone(value):
 
 
 class PhoneApi:
-    def __init__(self, url, token, timeout=15, cache_ttl_hours=0, stats=None):
+    def __init__(self, url, token, timeout=15, cache_ttl_hours=0, crawler=None):
         if not token:
             raise ValueError("PHONE_API_ENABLED=true cần PHONE_API_TOKEN trong .env")
         self.url = url or DEFAULT_URL
         self.token = token
         self.timeout = timeout
         self.cache_ttl = max(0, int(cache_ttl_hours)) * 3600
-        self.stats = stats
+        # Giữ crawler, không lấy crawler.stats ngay: từ Scrapy 2.19, stats chưa có
+        # lúc tạo spider (from_crawler), chỉ có khi crawl đã bắt đầu
+        self.crawler = crawler
+
+    @property
+    def stats(self):
+        try:
+            return self.crawler.stats if self.crawler else None
+        except RuntimeError:
+            return None
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -93,7 +102,7 @@ class PhoneApi:
             token=s.get("PHONE_API_TOKEN"),
             timeout=s.getint("PHONE_API_TIMEOUT", 15),
             cache_ttl_hours=s.getint("PHONE_CACHE_TTL_HOURS", 0),
-            stats=crawler.stats,
+            crawler=crawler,
         )
 
     def _inc(self, name):
