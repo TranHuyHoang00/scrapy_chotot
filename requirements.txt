@@ -1,6 +1,6 @@
 scrapy>=2.11
 redis
-kafka-python-ng
+kafka-python>=2.2
 elasticsearch>=8,<9
 requests
 python-dotenv

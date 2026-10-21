@@ -408,6 +408,7 @@ Dòng bắt đầu bằng `<` là biến có trong `.env.example` mà `.env` ch�
 | `Chống trùng: 0 mới, ... N trùng`, Kafka 0 gửi | Tin đã gửi ở lần trước. Xóa dữ liệu chống trùng (mục 7) |
 | `Không có __NEXT_DATA__` / `Không có dữ liệu tin` | Trang bị chặn (vd Cloudflare với nhatot) hoặc tin đã bị ẩn |
 | `Chưa có parser cho domain` | Link tin thuộc domain mới, cần thêm parser (mục 10.3) |
+| `cannot import name 'classproperty' from 'kafka.util'` | Cài lẫn 2 thư viện Kafka. Chạy: `pip uninstall -y kafka-python kafka-python-ng` rồi `pip install -r requirements.txt` |
 | `permission denied ... docker.sock` | Chưa đăng xuất/đăng nhập lại sau khi thêm user vào nhóm docker |
 
 ---

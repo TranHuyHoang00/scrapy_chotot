@@ -8,7 +8,8 @@ Mọi thông số đọc từ Scrapy settings (xem chotot/settings.py):
 
 import json
 
-from kafka import KafkaConsumer, KafkaProducer
+# Thư viện kafka chỉ import khi tạo producer/consumer (chế độ broker),
+# để KAFKA_MODE=http không phụ thuộc vào nó.
 
 
 def _api_version(settings):
@@ -47,6 +48,8 @@ def _serialize_key(key):
 
 
 def make_producer(settings):
+    from kafka import KafkaProducer
+
     return KafkaProducer(
         **connection_config(settings),
         value_serializer=_serialize_value,
@@ -60,6 +63,8 @@ def make_producer(settings):
 
 
 def make_consumer(settings, group_id=None):
+    from kafka import KafkaConsumer
+
     return KafkaConsumer(
         **connection_config(settings),
         group_id=group_id or settings.get("KAFKA_GROUP_ID"),
