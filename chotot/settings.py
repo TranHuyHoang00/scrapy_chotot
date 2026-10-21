@@ -108,9 +108,9 @@ CHOTOT_MAX_PAGES = env_int("CHOTOT_MAX_PAGES", 5)                    # số tran
 CHOTOT_MAX_ITEMS_PER_PAGE = env_int("CHOTOT_MAX_ITEMS_PER_PAGE", 0)  # 0 = lấy hết
 
 # Trường bắt buộc theo site; site không khai báo dùng "default"
+# Không bắt buộc price: tin cho tặng, thỏa thuận, không ghi giá vẫn giữ (price = null)
 VALIDATION_RULES = {
-    "default": ["ad_id", "url", "title", "price"],
-    "vieclamtot": ["ad_id", "url", "title", "price_text"],
+    "default": ["ad_id", "url", "title"],
 }
 VALIDATION_MIN_TITLE_LENGTH = 3
 DEDUP_ALLOW_UPDATES = True

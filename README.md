@@ -300,7 +300,7 @@ Các dòng cần xem:
 ===== Kết thúc spider 'chotot' sau 85.3s (đủ số item mục tiêu) =====
 Request: 25 gửi, 25 phản hồi, 0 thử lại, 0 bị robots.txt chặn
 Item: 10 hợp lệ, 2 bị loại
-  - Loại vì chotot/missing_price: 2
+  - Loại vì chotot/missing_title: 2
 Chống trùng: 10 mới, 0 cập nhật, 0 trùng
 Kafka: 10 gửi, 10 thành công, 0 thất bại
 Theo site:
@@ -447,7 +447,7 @@ Thêm site mới: viết 1 class kế thừa `BaseAdParser` trong `chotot/parser
 | Thứ tự | Pipeline | Việc làm |
 |---|---|---|
 | 100 | `normalize` | Làm sạch chữ, bỏ trùng ảnh, bỏ thông số rỗng |
-| 200 | `validation` | Loại tin thiếu trường bắt buộc theo site (`VALIDATION_RULES` trong `settings.py`; việc làm không bắt buộc `price`) hoặc giá không hợp lệ |
+| 200 | `validation` | Loại tin thiếu `ad_id`, `url`, `title` (`VALIDATION_RULES` trong `settings.py`). **Không bắt buộc `price`**: tin cho tặng, thỏa thuận, không ghi giá vẫn giữ với `price = null`; giá sai/âm thì đặt `null` |
 | 300 | `redis_dedup` | Loại tin không đổi so với lần gửi trước. Tin chỉ được "đẩy lại" (`updated_at` đổi) cũng không gửi lại; tin đổi giá/nội dung thì gửi bản mới |
 | 400 | `kafka_pipeline` | Điền thời gian, `entry_rowkey`, gửi `KAFKA_TOPIC_OUTPUT` |
 
@@ -502,7 +502,7 @@ Thời gian là timestamp **mili giây**. `created_time` là lúc đăng tin l�
 | `source`, `site` | `chotot`; site con: `chotot` / `xe` / `vieclamtot` / `nhatot` |
 | `ad_id`, `internal_ad_id` | `list_id` (ID trên URL), `ad_id` nội bộ của Chợ Tốt |
 | `url`, `title`, `description`, `category`, `category_name`, `condition` | |
-| `price`, `price_text` | giá dạng số (việc làm = null), chuỗi hiển thị |
+| `price`, `price_text` | giá dạng số, chuỗi hiển thị. Có thể `null`: việc làm, tin cho tặng, không ghi giá |
 | `salary_min`, `salary_max`, `salary_type` | chỉ có ở việc làm |
 | `location` | `address, city, city_v3, district, ward, ward_v3, region_id, area_id, ward_id, lat, lng` (+ `street` ở nhatot). `*_v3`: tên sau sáp nhập địa giới |
 | `posted_at`, `updated_at`, `crawled_at` | ms: đăng lần đầu, lần đẩy tin gần nhất, lúc crawl |

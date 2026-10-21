@@ -1,4 +1,8 @@
-"""Loại tin thiếu dữ liệu. Trường bắt buộc cấu hình theo từng site (VALIDATION_RULES)."""
+"""Loại tin thiếu dữ liệu. Trường bắt buộc cấu hình theo từng site (VALIDATION_RULES).
+
+price không bắt buộc: tin cho tặng, thỏa thuận, không ghi giá vẫn giữ với price = null.
+Giá sai kiểu hoặc âm thì đặt price = null thay vì loại tin.
+"""
 
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
@@ -6,9 +10,7 @@ from scrapy.exceptions import DropItem
 from chotot.utils.hydra import get_ad
 
 DEFAULT_RULES = {
-    "default": ["ad_id", "url", "title", "price"],
-    # tin tuyển dụng không có price; cần có lương hoặc chữ hiển thị lương
-    "vieclamtot": ["ad_id", "url", "title", "price_text"],
+    "default": ["ad_id", "url", "title"],
 }
 DEFAULT_MIN_TITLE_LENGTH = 3
 
@@ -51,8 +53,12 @@ class ValidationPipeline:
             self._drop("short_title", adapter)
 
         price = adapter.get("price")
-        if price is not None and (not isinstance(price, int) or isinstance(price, bool) or price <= 0):
-            self._drop("invalid_price", adapter)
+        if price is not None and (not isinstance(price, int) or isinstance(price, bool) or price < 0):
+            adapter["price"] = None
+            if self.stats:
+                self.stats.inc_value("validation/price_reset")
+        if adapter.get("price") is None and self.stats:
+            self.stats.inc_value("validation/no_price")
 
         if self.stats:
             self.stats.inc_value("validation/valid")
