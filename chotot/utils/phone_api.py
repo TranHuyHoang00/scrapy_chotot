@@ -23,6 +23,10 @@ from w3lib.url import add_or_replace_parameter
 
 from chotot.utils.redis_client import get_redis
 
+import base64
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
 AUTH_ERROR_CODES = (401, 403)
 DEFAULT_URL = "https://gateway.chotot.com/v1/private/ad-listing/phone"
 DEFAULT_HEADERS = {
@@ -31,12 +35,29 @@ DEFAULT_HEADERS = {
     "Referer": "https://www.chotot.com/",
 }
 
+PROD_PUBKEY = b"""-----BEGIN PUBLIC KEY-----
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAxnvPjlA/K/adq6mA6+uU
+tlyBBxFaKeK+WD2FypOeCAP0qtucmaDrIbxirykrxQjRpGxl2HKRBwGd2h/hDuk9
+CxRUXD2p0Hrzb1Hb9M5px19TPXM6AWSClR1kozehRusIFrxP6PHqDLx5prJFLlSZ
+zg3N3oGhS6oP/a4Ku/iAdCUCiHb5TX3b3+y4Ll/QViZhpKZjU6BhIOsiVIJhyXvn
+0cSqLXPjNuXR5A4JkmRl9T9cWncEHTKmoVUyXQJaDZa3yH/OJSEmhhGyKNKkM5so
+lasJWSBKenFnFvphw3+KG8BGfJwGkvtRAVbS1ljduH8z8fxALxHgUdnTtgpxB+KZ
+/CVnNr97EGqYPLVlX+duGkuy1yCunqVTiY2HyL/0bMTBK84oCQjtMVAHgZ345hZn
+mGST71D8+i5HGtOOFoRyP6qK6ex1qfEROzWsmVDA00aHLlQcKOLaHvT/DB30aeUs
+ZoL/kQo100XccufpHESrits0mEuoyza4CCFM04F3pDOXAgMBAAE=
+-----END PUBLIC KEY-----"""
+
+_key = load_pem_public_key(PROD_PUBKEY)
+
 logger = logging.getLogger(__name__)
 
 
 class PhoneAuthError(Exception):
     """Token API phone hết hạn hoặc không hợp lệ (HTTP 401/403)."""
 
+def make_e(ad_id: str) -> str:
+    ct = _key.encrypt(str(ad_id).encode(), padding.PKCS1v15())
+    return base64.b64encode(ct).decode()
 
 def cache_key(site, ad_id):
     return f"phone:{site}:{ad_id}"
@@ -47,6 +68,8 @@ def clean_phone(value):
         return None
     phone = str(value).strip().replace(" ", "").replace(".", "")
     return phone or None
+
+
 
 
 class PhoneApi:
@@ -110,7 +133,7 @@ class PhoneApi:
         )
         self._inc("request")
         return scrapy.Request(
-            add_or_replace_parameter(self.url, "e", str(ad_id)),
+            add_or_replace_parameter(self.url, "e", str(make_e(ad_id))),
             headers={**DEFAULT_HEADERS, "Authorization": f"Bearer {self.token}"},
             callback=callback,
             errback=errback,
