@@ -127,7 +127,13 @@ class HydraBaseSpider(scrapy.Spider):
             return [make_test_profile(url, name=self.name)]
         return self.get_source()
 
+    async def start(self):
+        """Điểm bắt đầu của Scrapy >= 2.13 (bản mới không còn gọi start_requests)."""
+        for request in self.start_requests():
+            yield request
+
     def start_requests(self):
+        """Điểm bắt đầu của Scrapy < 2.13; start() cũng dùng lại hàm này."""
         profiles = self.load_profiles()
         self.monitor("INFO", f"[Topic:{self.topic}] Total source: {len(profiles)}", tag="ITEM")
 
