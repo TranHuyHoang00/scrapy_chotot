@@ -182,7 +182,7 @@ PHONE_API_TOKEN=<Bearer token>
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `PHONE_API_ENABLED` | `true` | Gọi API lấy số đầy đủ. `false` thì `seller.phone = null` |
-| `PHONE_API_URL` | `https://gateway.chotot.com/v1/private/ad-listing/phone` | Endpoint API, gọi `GET ?e=<ad_id>` |
+| `PHONE_API_URL` | `https://gateway.chotot.com/v1/private/ad-listing/phone` | Endpoint API, gọi `GET ?e=<ad_id đã mã hóa RSA + base64>` (mục 10.5) |
 | `PHONE_API_TOKEN` | trống | Bearer token. **Bắt buộc** khi `PHONE_API_ENABLED=true` |
 | `PHONE_API_TIMEOUT` | `15` | Số giây chờ API phản hồi |
 | `PHONE_API_DELAY` | `1.5` | Số giây nghỉ giữa 2 lần gọi API (AutoThrottle có thể tự tăng) |
@@ -437,6 +437,7 @@ Dòng bắt đầu bằng `<` là biến có trong `.env.example` mà `.env` ch�
 | `API phone: ... N lỗi` nhiều | API chậm hoặc bị giới hạn tần suất: tăng `PHONE_API_DELAY`, giảm `PHONE_API_CONCURRENCY`, kiểm tra proxy |
 | `Chưa có parser cho domain` | Link tin thuộc domain mới, cần thêm parser (mục 10.3) |
 | `cannot import name 'classproperty' from 'kafka.util'` | Cài lẫn 2 thư viện Kafka. Chạy: `pip uninstall -y kafka-python kafka-python-ng` rồi `pip install -r requirements.txt` |
+| `Crawler.stats is not set yet` khi khởi động spider | Code cũ chạy trên Scrapy 2.19+. `git pull origin main` để lấy bản đã sửa |
 | `permission denied ... docker.sock` | Chưa đăng xuất/đăng nhập lại sau khi thêm user vào nhóm docker |
 
 ---
@@ -487,10 +488,20 @@ Gửi Kafka thất bại thì dấu vân tay của tin bị xóa khỏi Redis, l
 `__NEXT_DATA__` chỉ có số đã che (`097567****`), nên số đầy đủ lấy qua API riêng. Toàn bộ phần gọi API nằm trong `chotot/utils/phone_api.py`; đổi API thì chỉ sửa file này.
 
 ```
-GET PHONE_API_URL?e=<ad_id>          ad_id = ID trên URL tin, vd .../135193883.htm → e=135193883
+GET PHONE_API_URL?e=<ad_id đã mã hóa>
 Authorization: Bearer PHONE_API_TOKEN
 → {"phone": "0523149999"}
 ```
+
+Tham số `e` **không phải** `ad_id` dạng số, mà là `ad_id` đã mã hóa (giống cách web Chợ Tốt gọi API):
+
+1. `ad_id` = ID trên URL tin (`list_id`), vd `.../135193883.htm` → `135193883`.
+2. Mã hóa RSA (padding PKCS#1 v1.5) bằng public key `PROD_PUBKEY` nhúng trong `phone_api.py` (cần thư viện `cryptography`).
+3. Mã hóa base64, gắn vào URL: `?e=<chuỗi base64>`. Hàm thực hiện: `make_e(ad_id)`.
+
+Padding PKCS#1 v1.5 có thành phần ngẫu nhiên nên mỗi lần gọi, `e` của cùng một tin sẽ khác nhau; đó là bình thường.
+
+`PROD_PUBKEY` là **public key** của Chợ Tốt (web công khai), không phải bí mật, nên để trong code thay vì `.env`. Nếu Chợ Tốt đổi key (API trả lỗi dù token còn hạn), cập nhật lại `PROD_PUBKEY` trong `chotot/utils/phone_api.py`.
 
 - Dùng chung cho mọi site (chotot, xe, nhatot, vieclamtot).
 - Gọi **bất đồng bộ** qua Scrapy (không chặn crawl), đi qua proxy giống crawl web. Tốc độ riêng cho `gateway.chotot.com`: `PHONE_API_DELAY`, `PHONE_API_CONCURRENCY`.

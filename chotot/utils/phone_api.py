@@ -1,6 +1,7 @@
 """Lấy số điện thoại đầy đủ của tin qua API Chợ Tốt.
 
-    GET PHONE_API_URL?e=<ad_id>           (ad_id = list_id, ID trên URL tin: .../135193883.htm)
+    GET PHONE_API_URL?e=<make_e(ad_id)>   (ad_id = list_id, ID trên URL tin: .../135193883.htm;
+                                          e = base64(RSA PKCS#1 v1.5(ad_id, PROD_PUBKEY)))
     Header: Authorization: Bearer PHONE_API_TOKEN
     Response: {"phone": "0523149999"}
 
