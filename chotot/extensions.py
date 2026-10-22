@@ -153,9 +153,9 @@ class CrawlMonitor:
         self.logger.info("Kafka: %d gửi, %d thành công, %d thất bại", sent, delivered, failed)
         if self.settings.getbool("PHONE_API_ENABLED"):
             self.logger.info(
-                "API phone: %d gọi, %d có số, %d không có số, %d lỗi, %d lấy từ cache",
+                "API phone: %d gọi, %d có số, %d không có số, %d ẩn số, %d lỗi, %d lấy từ cache",
                 self._get("phone_api/request"), self._get("phone_api/ok"), self._get("phone_api/no_phone"),
-                self._get("phone_api/error"), self._get("phone_api/cache_hit"),
+                self._get("phone_api/hidden"), self._get("phone_api/error"), self._get("phone_api/cache_hit"),
             )
             self.logger.info(
                 "Token API phone: %d lần lấy thành công, %d lỗi, %d lần làm mới",

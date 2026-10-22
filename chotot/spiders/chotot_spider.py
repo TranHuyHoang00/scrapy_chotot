@@ -162,8 +162,8 @@ class ChototSpider(HydraBaseSpider):
             return
 
         # Token quá exp: tạm dừng spider, lấy token mới trước khi gọi API phone
-        if self.phone_api.token_expired():
-            await self._renew_phone_token()
+        if self.phone_api.token_expired() and not await self._renew_phone_token():
+            return
 
         # Gọi API phone bất đồng bộ, item được gửi đi ở parse_phone / phone_failed
         yield self.phone_request(envelope, profile)
@@ -179,13 +179,17 @@ class ChototSpider(HydraBaseSpider):
         )
 
     async def _renew_phone_token(self, failed_generation=None):
-        """Lấy token mới (spider tạm dừng trong lúc chờ). Hết số lần thử thì dừng spider.
+        """Lấy token mới (spider tạm dừng trong lúc chờ). True = có token, gọi lại API phone.
+        False = spider đang đóng nên bỏ qua. Hết số lần thử thì dừng spider (CloseSpider).
         Tin đang chờ số không được gửi: chưa đánh dấu chống trùng nên lần chạy sau sẽ crawl lại đủ số."""
         if self.phone_auth_failed:
             raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
-        if not await self.phone_api.renew_token(failed_generation):
-            self.phone_auth_failed = True
-            raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
+        if await self.phone_api.renew_token(failed_generation):
+            return True
+        if self.phone_api.renew_aborted():
+            return False
+        self.phone_auth_failed = True
+        raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
 
     async def parse_phone(self, response):
         envelope = response.meta["envelope"]
@@ -194,9 +198,9 @@ class ChototSpider(HydraBaseSpider):
             ad["seller"]["phone"] = self.phone_api.parse_response(response, ad["site"])
         except PhoneAuthError as e:
             self.logger.warning("API phone %s:%s bị từ chối (%s)", ad["site"], ad["ad_id"], e)
-            await self._renew_phone_token(e.generation)
-            # Đã có token mới: gọi lại API phone cho tin này
-            yield self.phone_request(envelope, response.meta["profile"])
+            if await self._renew_phone_token(e.generation):
+                # Đã có token mới: gọi lại API phone cho tin này
+                yield self.phone_request(envelope, response.meta["profile"])
             return
         yield envelope
 

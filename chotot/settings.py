@@ -174,6 +174,7 @@ DOWNLOAD_SLOTS = {
     "gateway.chotot.com": {
         "concurrency": PHONE_API_CONCURRENCY,
         "delay": PHONE_API_DELAY,
-        "randomize_delay": True,
+        # không khai báo randomize_delay/jitter: dùng mặc định ±50% (RANDOMIZE_DOWNLOAD_DELAY),
+        # tránh cảnh báo deprecated trên Scrapy 2.19+
     },
 }

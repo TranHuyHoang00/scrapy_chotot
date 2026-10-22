@@ -326,7 +326,8 @@ Item: 10 hợp lệ, 2 bị loại
   - Loại vì chotot/missing_title: 2
 Chống trùng: 10 mới, 0 cập nhật, 0 trùng
 Kafka: 10 gửi, 10 thành công, 0 thất bại
-API phone: 8 gọi, 7 có số, 1 không có số, 0 lỗi, 2 lấy từ cache
+API phone: 8 gọi, 6 có số, 1 không có số, 1 ẩn số, 0 lỗi, 2 lấy từ cache
+Token API phone: 1 lần lấy thành công, 0 lỗi, 0 lần làm mới
 Theo site:
   - chotot: 6
   - xe: 4
@@ -510,7 +511,7 @@ X-Session-Keeper-Key: PHONE_TOKEN_API_KEY
 `exp` là thời điểm hết hạn (giây), `at` là lúc cấp (mili giây). API token đi qua proxy giống crawl web.
 
 - **Lúc khởi động**: gọi API token 1 lần, trước khi đọc profile. Lỗi (không gọi được, HTTP khác 200, không phải JSON, `token` rỗng, `exp` đã qua) thì log `[HYDRA-MONITOR]` ERROR và **dừng spider** (lý do `phone_token_error`).
-- **Token hết hạn giữa chừng** (quá `exp`, hoặc API phone trả 401/403): **tạm dừng spider** (không lấy request mới), đợi `PHONE_TOKEN_RETRY_DELAY` giây rồi lấy token mới, rồi gọi lại API phone cho các tin đang chờ. Mỗi lần lấy token lỗi, hoặc token mới vẫn bị 401/403, tính là 1 lần thử. Thử tối đa `PHONE_TOKEN_MAX_RETRIES` lần (đếm lại từ 0 sau mỗi lần API phone chấp nhận token); vẫn không được thì **dừng spider** (lý do `phone_token_error`).
+- **Token hết hạn giữa chừng** (quá `exp`, hoặc API phone trả 401/403): **tạm dừng spider** (không lấy request mới), đợi `PHONE_TOKEN_RETRY_DELAY` giây rồi lấy token mới, rồi gọi lại API phone cho các tin đang chờ. Mỗi lần lấy token lỗi, hoặc token mới vẫn bị 401/403, tính là 1 lần thử. Thử tối đa `PHONE_TOKEN_MAX_RETRIES` lần (đếm lại từ 0 sau mỗi lần API phone chấp nhận token); vẫn không được thì **dừng spider** (lý do `phone_token_error`). Nếu spider đang đóng (đủ item, Ctrl+C…) thì bỏ qua việc lấy token, tin đang chờ số không được gửi để lần sau crawl lại.
 
 Tham số `e` **không phải** `ad_id` dạng số, mà là `ad_id` đã mã hóa (giống cách web Chợ Tốt gọi API):
 
@@ -530,8 +531,9 @@ Padding PKCS#1 v1.5 có thành phần ngẫu nhiên nên mỗi lần gọi, `e` 
 | Trường hợp | Xử lý |
 |---|---|
 | Có số | `seller.phone = "0523149999"`, gửi tin |
+| Người bán ẩn số: HTTP 403 `{"message":"forbidden - phone hidden"}` | `seller.phone = null`, **vẫn gửi tin**, đếm vào "ẩn số". Không coi là lỗi token |
 | Không có số, HTTP lỗi khác 401/403, lỗi mạng/timeout (sau khi retry) | `seller.phone = null`, **vẫn gửi tin**. Lần sau lấy được số thì chống trùng thấy nội dung đổi và gửi bản mới |
-| 401/403 (token hết hạn/sai) | Tạm dừng spider, lấy token mới rồi gọi lại (xem phần Token ở trên). Thử hết số lần vẫn lỗi thì **dừng spider**; tin chưa có số không được gửi để lần sau crawl lại |
+| 401, hoặc 403 không phải "phone hidden" (token hết hạn/sai) | Tạm dừng spider, lấy token mới rồi gọi lại (xem phần Token ở trên). Thử hết số lần vẫn lỗi thì **dừng spider**; tin chưa có số không được gửi để lần sau crawl lại |
 
 ### 10.6. Gửi Kafka
 

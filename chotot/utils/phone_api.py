@@ -20,9 +20,11 @@ Mọi thứ liên quan đến API nằm trong file này: đổi API thì chỉ s
 
 Kết quả:
     - Có số: trả về chuỗi số, lưu cache Redis (PHONE_CACHE_TTL_HOURS).
-    - Không có số / lỗi mạng / lỗi HTTP khác: trả về None, tin vẫn được gửi với phone = null.
+    - Không có số / người bán ẩn số (403 "phone hidden") / lỗi mạng / lỗi HTTP khác: trả về None,
+      tin vẫn được gửi với phone = null.
     - Token hết hạn (quá exp, hoặc API phone trả 401/403): tạm dừng spider, đợi PHONE_TOKEN_RETRY_DELAY
       giây rồi lấy token mới, thử tối đa PHONE_TOKEN_MAX_RETRIES lần. Hết số lần → dừng spider.
+      Spider đang đóng thì bỏ qua, không lấy token nữa.
 """
 
 import asyncio
@@ -40,6 +42,8 @@ from w3lib.url import add_or_replace_parameter
 from chotot.utils.redis_client import get_redis
 
 AUTH_ERROR_CODES = (401, 403)
+# 403 kèm nội dung này là người bán ẩn số, không phải lỗi token
+PHONE_HIDDEN_MARKERS = ("phone hidden",)
 DEFAULT_URL = "https://gateway.chotot.com/v1/private/ad-listing/phone"
 DEFAULT_HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -93,6 +97,18 @@ def clean_phone(value):
     return phone or None
 
 
+def is_phone_hidden(text):
+    text = (text or "").lower()
+    return any(marker in text for marker in PHONE_HIDDEN_MARKERS)
+
+
+def engine_closing(crawler):
+    """Spider đang đóng (đủ item, Ctrl+C, CloseSpider...). Hỗ trợ Scrapy cũ (engine.slot) và mới (engine._slot)."""
+    engine = getattr(crawler, "engine", None)
+    slot = getattr(engine, "_slot", None) or getattr(engine, "slot", None)
+    return getattr(slot, "closing", None) is not None
+
+
 def _default_log(level, message):
     getattr(logger, level.lower())(message)
 
@@ -108,7 +124,7 @@ class TokenProvider:
     """
 
     def __init__(self, url, key, proxy=None, timeout=15, retry_delay=60, max_retries=3,
-                 log=None, on_pause=None, on_resume=None, stats=None):
+                 log=None, on_pause=None, on_resume=None, is_closing=None, stats=None):
         if not url or not key:
             raise ValueError("PHONE_API_ENABLED=true cần PHONE_TOKEN_API_URL và PHONE_TOKEN_API_KEY trong .env")
         self.url = url
@@ -120,6 +136,7 @@ class TokenProvider:
         self.log = log or _default_log
         self.on_pause = on_pause
         self.on_resume = on_resume
+        self.is_closing = is_closing  # callable: spider đang đóng thì không lấy token nữa
         self.stats = stats  # callable trả về Scrapy stats (hoặc None)
 
         self.token = None
@@ -127,6 +144,7 @@ class TokenProvider:
         self.generation = 0
         self.failures = 0
         self.failed = False
+        self.aborted = False  # dừng làm mới token vì spider đang đóng
         self._task = None
 
     def _inc(self, name):
@@ -200,13 +218,34 @@ class TokenProvider:
         (generation khác) thì không lấy lại, chỉ cần gửi lại request.
         Nhiều callback gọi cùng lúc thì dùng chung 1 lượt làm mới.
         """
-        if self.failed:
+        if self.failed or self.aborted:
+            return False
+        if self._closing():
+            self.aborted = True
             return False
         if failed_generation is not None and failed_generation != self.generation and self._task is None:
             return True
         if self._task is None:
             self._task = asyncio.ensure_future(self._renew_loop())
         return await asyncio.shield(self._task)
+
+    def _closing(self):
+        try:
+            return bool(self.is_closing and self.is_closing())
+        except Exception:
+            return False
+
+    async def _wait(self):
+        """Chờ retry_delay giây; trả về False nếu spider bắt đầu đóng trong lúc chờ."""
+        loop = asyncio.get_running_loop()
+        end = loop.time() + self.retry_delay
+        while True:
+            if self._closing():
+                return False
+            left = end - loop.time()
+            if left <= 0:
+                return True
+            await asyncio.sleep(min(1.0, left))
 
     async def _renew_loop(self):
         self._inc("renew")
@@ -220,7 +259,10 @@ class TokenProvider:
                     f"Token API phone hết hạn hoặc bị từ chối. Tạm dừng spider, đợi {self.retry_delay:g}s rồi lấy "
                     f"token mới (lần {self.failures}/{self.max_retries})",
                 )
-                await asyncio.sleep(self.retry_delay)
+                if not await self._wait():
+                    self.aborted = True
+                    self.log("INFO", "Spider đang dừng, bỏ qua việc lấy token mới")
+                    return False
                 try:
                     await asyncio.to_thread(self.fetch)
                     return True
@@ -282,6 +324,7 @@ class PhoneApi:
             log=log,
             on_pause=lambda: crawler.engine.pause(),
             on_resume=lambda: crawler.engine.unpause(),
+            is_closing=lambda: engine_closing(crawler),
             stats=lambda: api.stats,
         )
         return api
@@ -301,6 +344,10 @@ class PhoneApi:
 
     async def renew_token(self, failed_generation=None):
         return await self.tokens.renew(failed_generation)
+
+    def renew_aborted(self):
+        """True nếu không làm mới token vì spider đang đóng (không phải lỗi token)."""
+        return self.tokens.aborted
 
     # --------------------------------------------------------------- cache
 
@@ -348,6 +395,12 @@ class PhoneApi:
         """Trả về số điện thoại hoặc None. Raise PhoneAuthError khi 401/403."""
         ad_id = response.meta.get("phone_ad_id")
         status = response.status
+
+        if status == 403 and is_phone_hidden(response.text):
+            # Người bán ẩn số: token vẫn dùng được
+            self.tokens.mark_ok()
+            self._inc("hidden")
+            return None
 
         if status in AUTH_ERROR_CODES:
             self._inc(f"http_{status}")
