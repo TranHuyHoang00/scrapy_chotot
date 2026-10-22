@@ -159,7 +159,11 @@ HYDRA_CRAWLER_SYSTEM = env("HYDRA_CRAWLER_SYSTEM", "api-crawler")
 # Đi qua proxy giống crawl web (USE_PROXY / CRAWL_PROXY)
 PHONE_API_ENABLED = env_bool("PHONE_API_ENABLED", True)
 PHONE_API_URL = env("PHONE_API_URL", "https://gateway.chotot.com/v1/private/ad-listing/phone")
-PHONE_API_TOKEN = env("PHONE_API_TOKEN")                # Bearer token, không commit
+# Bearer token lấy từ API token (GET, header X-Session-Keeper-Key), không đặt trong .env
+PHONE_TOKEN_API_URL = env("PHONE_TOKEN_API_URL")
+PHONE_TOKEN_API_KEY = env("PHONE_TOKEN_API_KEY")        # giá trị header X-Session-Keeper-Key, không commit
+PHONE_TOKEN_RETRY_DELAY = env_float("PHONE_TOKEN_RETRY_DELAY", 60)  # giây chờ trước mỗi lần lấy lại token
+PHONE_TOKEN_MAX_RETRIES = env_int("PHONE_TOKEN_MAX_RETRIES", 3)     # hết số lần thì dừng spider
 PHONE_API_TIMEOUT = env_int("PHONE_API_TIMEOUT", 15)
 PHONE_API_DELAY = env_float("PHONE_API_DELAY", 1.5)     # giây nghỉ giữa 2 lần gọi API
 PHONE_API_CONCURRENCY = env_int("PHONE_API_CONCURRENCY", 2)

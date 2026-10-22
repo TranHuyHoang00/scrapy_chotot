@@ -7,9 +7,10 @@ from w3lib.url import add_or_replace_parameter
 from chotot.parsers import ALLOWED_DOMAINS, get_parser
 from chotot.spiders.base import HydraBaseSpider
 from chotot.utils.hydra import get_ad
-from chotot.utils.phone_api import PhoneApi, PhoneAuthError
+from chotot.utils.phone_api import PhoneApi, PhoneAuthError, PhoneTokenError
 
-PHONE_AUTH_ERROR_REASON = "phone_api_auth_error"
+# Lý do dừng spider khi không lấy được token API phone (lúc khởi động hoặc sau khi thử lại hết số lần)
+PHONE_TOKEN_ERROR_REASON = "phone_token_error"
 
 AD_LINK_REGEX = r"^[^#?]*/\d+\.htm"
 
@@ -31,8 +32,24 @@ class ChototSpider(HydraBaseSpider):
 
     def setup_hydra(self):
         super().setup_hydra()
-        self.phone_api = PhoneApi.from_crawler(self.crawler)  # None nếu PHONE_API_ENABLED=false
+        # None nếu PHONE_API_ENABLED=false. API token đi qua cùng proxy với crawl
+        self.phone_api = PhoneApi.from_crawler(
+            self.crawler,
+            proxy=self.my_proxy,
+            log=lambda level, message: self.monitor(level, message, tag="PHONE"),
+        )
         self.phone_auth_failed = False
+
+    def start_requests(self):
+        """Lấy token API phone trước khi đọc profile: lỗi thì dừng ngay, không lấy profile khỏi Kafka."""
+        if self.phone_api is not None:
+            try:
+                self.phone_api.init_token()
+            except PhoneTokenError as e:
+                self.phone_auth_failed = True
+                self.monitor("ERROR", f"Không lấy được token API phone: {e}. Dừng spider", tag="PHONE")
+                raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
+        yield from super().start_requests()
 
     def _inc(self, name):
         self.crawler.stats.inc_value(f"chotot/{name}")
@@ -102,7 +119,7 @@ class ChototSpider(HydraBaseSpider):
 
     # ------------------------------------------------------------- chi tiết
 
-    def parse_detail(self, response):
+    async def parse_detail(self, response):
         profile = response.meta["profile"]
 
         parser = get_parser(response.url)
@@ -144,31 +161,43 @@ class ChototSpider(HydraBaseSpider):
             yield envelope
             return
 
+        # Token quá exp: tạm dừng spider, lấy token mới trước khi gọi API phone
+        if self.phone_api.token_expired():
+            await self._renew_phone_token()
+
         # Gọi API phone bất đồng bộ, item được gửi đi ở parse_phone / phone_failed
-        yield self.phone_api.build_request(
-            item["ad_id"],
+        yield self.phone_request(envelope, profile)
+
+    # ----------------------------------------------------------- số điện thoại
+
+    def phone_request(self, envelope, profile):
+        return self.phone_api.build_request(
+            get_ad(envelope)["ad_id"],
             callback=self.parse_phone,
             errback=self.phone_failed,
             meta=self.request_meta(profile, envelope=envelope),
         )
 
-    # ----------------------------------------------------------- số điện thoại
+    async def _renew_phone_token(self, failed_generation=None):
+        """Lấy token mới (spider tạm dừng trong lúc chờ). Hết số lần thử thì dừng spider.
+        Tin đang chờ số không được gửi: chưa đánh dấu chống trùng nên lần chạy sau sẽ crawl lại đủ số."""
+        if self.phone_auth_failed:
+            raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
+        if not await self.phone_api.renew_token(failed_generation):
+            self.phone_auth_failed = True
+            raise CloseSpider(PHONE_TOKEN_ERROR_REASON)
 
-    def parse_phone(self, response):
+    async def parse_phone(self, response):
         envelope = response.meta["envelope"]
         ad = get_ad(envelope)
         try:
             ad["seller"]["phone"] = self.phone_api.parse_response(response, ad["site"])
         except PhoneAuthError as e:
-            # Không gửi tin này: chưa đánh dấu chống trùng nên lần chạy sau sẽ crawl lại đủ số
-            if not self.phone_auth_failed:
-                self.phone_auth_failed = True
-                self.monitor(
-                    "ERROR",
-                    f"Token API phone hết hạn hoặc không hợp lệ ({e}). Dừng spider, cập nhật PHONE_API_TOKEN",
-                    tag="PHONE",
-                )
-            raise CloseSpider(PHONE_AUTH_ERROR_REASON)
+            self.logger.warning("API phone %s:%s bị từ chối (%s)", ad["site"], ad["ad_id"], e)
+            await self._renew_phone_token(e.generation)
+            # Đã có token mới: gọi lại API phone cho tin này
+            yield self.phone_request(envelope, response.meta["profile"])
+            return
         yield envelope
 
     def phone_failed(self, failure):

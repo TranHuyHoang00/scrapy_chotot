@@ -123,8 +123,9 @@ KAFKA_LOGGING_ENABLED=false
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# API lấy số điện thoại đầy đủ
-PHONE_API_TOKEN=<Bearer token>
+# API lấy token cho API số điện thoại
+PHONE_TOKEN_API_URL=<URL API lấy token>
+PHONE_TOKEN_API_KEY=<giá trị header X-Session-Keeper-Key>
 
 # Proxy, nếu máy cần (dùng cho cả crawl web và API phone)
 USE_PROXY=true
@@ -146,7 +147,8 @@ ES_HOST=<elasticsearch>
 END_POINT_API=<api profile>
 API_KEY_GLOBAL=<api key>
 
-PHONE_API_TOKEN=<Bearer token>
+PHONE_TOKEN_API_URL=<URL API lấy token>
+PHONE_TOKEN_API_KEY=<giá trị header X-Session-Keeper-Key>
 ```
 
 Đặt 3 file chứng chỉ Kafka vào `chotot/ssl/`: `ca.pem`, `key.pem`, `certificate.pem`. Thư mục này đã được `.gitignore`.
@@ -183,7 +185,10 @@ PHONE_API_TOKEN=<Bearer token>
 |---|---|---|
 | `PHONE_API_ENABLED` | `true` | Gọi API lấy số đầy đủ. `false` thì `seller.phone = null` |
 | `PHONE_API_URL` | `https://gateway.chotot.com/v1/private/ad-listing/phone` | Endpoint API, gọi `GET ?e=<ad_id đã mã hóa RSA + base64>` (mục 10.5) |
-| `PHONE_API_TOKEN` | trống | Bearer token. **Bắt buộc** khi `PHONE_API_ENABLED=true` |
+| `PHONE_TOKEN_API_URL` | trống | API lấy Bearer token cho API phone (GET). **Bắt buộc** khi `PHONE_API_ENABLED=true` |
+| `PHONE_TOKEN_API_KEY` | trống | Giá trị header `X-Session-Keeper-Key` gửi tới API token. **Bắt buộc** khi `PHONE_API_ENABLED=true` |
+| `PHONE_TOKEN_RETRY_DELAY` | `60` | Token hết hạn: số giây chờ trước mỗi lần lấy lại token (spider tạm dừng trong lúc chờ) |
+| `PHONE_TOKEN_MAX_RETRIES` | `3` | Số lần lấy lại token tối đa; vẫn không được thì dừng spider |
 | `PHONE_API_TIMEOUT` | `15` | Số giây chờ API phản hồi |
 | `PHONE_API_DELAY` | `1.5` | Số giây nghỉ giữa 2 lần gọi API (AutoThrottle có thể tự tăng) |
 | `PHONE_API_CONCURRENCY` | `2` | Số request API song song tối đa |
@@ -432,8 +437,9 @@ Dòng bắt đầu bằng `<` là biến có trong `.env.example` mà `.env` ch�
 | Không tải được trang nào (timeout, connection refused) | Máy cần proxy: `USE_PROXY=true`, `CRAWL_PROXY=...` |
 | `Chống trùng: 0 mới, ... N trùng`, Kafka 0 gửi | Tin đã gửi ở lần trước. Xóa dữ liệu chống trùng (mục 7) |
 | `Không có __NEXT_DATA__` / `Không có dữ liệu tin` | Trang bị chặn (vd Cloudflare với nhatot) hoặc tin đã bị ẩn |
-| `PHONE_API_ENABLED=true cần PHONE_API_TOKEN` | Thiếu `PHONE_API_TOKEN` trong `.env`. Không cần số điện thoại thì đặt `PHONE_API_ENABLED=false` |
-| `Token API phone hết hạn hoặc không hợp lệ`, spider dừng | API trả 401/403: cập nhật `PHONE_API_TOKEN` rồi chạy lại. Tin chưa lấy được số không bị đánh dấu chống trùng, lần sau được crawl lại |
+| `PHONE_API_ENABLED=true cần PHONE_TOKEN_API_URL và PHONE_TOKEN_API_KEY` | Thiếu 2 biến này trong `.env`. Không cần số điện thoại thì đặt `PHONE_API_ENABLED=false` |
+| `Không lấy được token API phone: ...`, spider dừng ngay khi khởi động | API token lỗi, sai `PHONE_TOKEN_API_KEY`, trả token rỗng hoặc đã hết hạn. Kiểm tra URL, key, proxy |
+| `Không lấy được token API phone hợp lệ sau N lần thử`, spider dừng | Token hết hạn giữa chừng và lấy lại `PHONE_TOKEN_MAX_RETRIES` lần đều không được. Tin chưa lấy được số không bị đánh dấu chống trùng, lần sau được crawl lại |
 | `API phone: ... N lỗi` nhiều | API chậm hoặc bị giới hạn tần suất: tăng `PHONE_API_DELAY`, giảm `PHONE_API_CONCURRENCY`, kiểm tra proxy |
 | `Chưa có parser cho domain` | Link tin thuộc domain mới, cần thêm parser (mục 10.3) |
 | `cannot import name 'classproperty' from 'kafka.util'` | Cài lẫn 2 thư viện Kafka. Chạy: `pip uninstall -y kafka-python kafka-python-ng` rồi `pip install -r requirements.txt` |
@@ -489,9 +495,22 @@ Gửi Kafka thất bại thì dấu vân tay của tin bị xóa khỏi Redis, l
 
 ```
 GET PHONE_API_URL?e=<ad_id đã mã hóa>
-Authorization: Bearer PHONE_API_TOKEN
+Authorization: Bearer <token>
 → {"phone": "0523149999"}
 ```
+
+**Token** không đặt trong `.env` mà lấy từ API token:
+
+```
+GET PHONE_TOKEN_API_URL
+X-Session-Keeper-Key: PHONE_TOKEN_API_KEY
+→ {"token": "...", "cookie": "privateToken", "exp": 1792727075, "at": 1792654459950}
+```
+
+`exp` là thời điểm hết hạn (giây), `at` là lúc cấp (mili giây). API token đi qua proxy giống crawl web.
+
+- **Lúc khởi động**: gọi API token 1 lần, trước khi đọc profile. Lỗi (không gọi được, HTTP khác 200, không phải JSON, `token` rỗng, `exp` đã qua) thì log `[HYDRA-MONITOR]` ERROR và **dừng spider** (lý do `phone_token_error`).
+- **Token hết hạn giữa chừng** (quá `exp`, hoặc API phone trả 401/403): **tạm dừng spider** (không lấy request mới), đợi `PHONE_TOKEN_RETRY_DELAY` giây rồi lấy token mới, rồi gọi lại API phone cho các tin đang chờ. Mỗi lần lấy token lỗi, hoặc token mới vẫn bị 401/403, tính là 1 lần thử. Thử tối đa `PHONE_TOKEN_MAX_RETRIES` lần (đếm lại từ 0 sau mỗi lần API phone chấp nhận token); vẫn không được thì **dừng spider** (lý do `phone_token_error`).
 
 Tham số `e` **không phải** `ad_id` dạng số, mà là `ad_id` đã mã hóa (giống cách web Chợ Tốt gọi API):
 
@@ -512,7 +531,7 @@ Padding PKCS#1 v1.5 có thành phần ngẫu nhiên nên mỗi lần gọi, `e` 
 |---|---|
 | Có số | `seller.phone = "0523149999"`, gửi tin |
 | Không có số, HTTP lỗi khác 401/403, lỗi mạng/timeout (sau khi retry) | `seller.phone = null`, **vẫn gửi tin**. Lần sau lấy được số thì chống trùng thấy nội dung đổi và gửi bản mới |
-| 401/403 (token hết hạn/sai) | Log `[HYDRA-MONITOR]` ERROR, **dừng spider** (lý do `phone_api_auth_error`). Tin chưa có số không được gửi để lần sau crawl lại |
+| 401/403 (token hết hạn/sai) | Tạm dừng spider, lấy token mới rồi gọi lại (xem phần Token ở trên). Thử hết số lần vẫn lỗi thì **dừng spider**; tin chưa có số không được gửi để lần sau crawl lại |
 
 ### 10.6. Gửi Kafka
 

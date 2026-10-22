@@ -18,7 +18,7 @@ REASONS = {
     "closespider_itemcount": "đủ số item mục tiêu",
     "closespider_timeout": "hết thời gian cho phép",
     "shutdown": "người dùng dừng",
-    "phone_api_auth_error": "token API phone hết hạn hoặc không hợp lệ",
+    "phone_token_error": "không lấy được token API phone",
 }
 
 
@@ -157,6 +157,10 @@ class CrawlMonitor:
                 self._get("phone_api/request"), self._get("phone_api/ok"), self._get("phone_api/no_phone"),
                 self._get("phone_api/error"), self._get("phone_api/cache_hit"),
             )
+            self.logger.info(
+                "Token API phone: %d lần lấy thành công, %d lỗi, %d lần làm mới",
+                self._get("phone_token/ok"), self._get("phone_token/error"), self._get("phone_token/renew"),
+            )
 
         categories = self._with_prefix("monitor/site/")
         if categories:
@@ -164,8 +168,10 @@ class CrawlMonitor:
             for name, count in categories:
                 self.logger.info("  - %s: %d", name, count)
 
-        if reason == "phone_api_auth_error":
-            self.logger.error("Spider dừng vì token API phone hết hạn hoặc không hợp lệ: cập nhật PHONE_API_TOKEN")
+        if reason == "phone_token_error":
+            self.logger.error(
+                "Spider dừng vì không lấy được token API phone: kiểm tra PHONE_TOKEN_API_URL, PHONE_TOKEN_API_KEY"
+            )
         if forbidden:
             self.logger.warning("Có %d URL bị robots.txt chặn, kiểm tra lại nguồn URL", forbidden)
         if sent != delivered + failed:

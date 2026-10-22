@@ -2,31 +2,42 @@
 
     GET PHONE_API_URL?e=<make_e(ad_id)>   (ad_id = list_id, ID trên URL tin: .../135193883.htm;
                                           e = base64(RSA PKCS#1 v1.5(ad_id, PROD_PUBKEY)))
-    Header: Authorization: Bearer PHONE_API_TOKEN
+    Header: Authorization: Bearer <token>
     Response: {"phone": "0523149999"}
 
+Token không đặt trong .env mà lấy từ API token (TokenProvider):
+
+    GET PHONE_TOKEN_API_URL
+    Header: X-Session-Keeper-Key: PHONE_TOKEN_API_KEY
+    Response: {"token": "...", "cookie": "privateToken", "exp": 1792727075, "at": 1792654459950}
+              exp: hết hạn (giây), at: lúc cấp (mili giây)
+
 Dùng chung cho mọi site (chotot, xe, nhatot, vieclamtot).
-Request đi qua Scrapy (bất đồng bộ, không chặn crawl) nên tự theo proxy USE_PROXY / CRAWL_PROXY.
+Request API phone đi qua Scrapy (bất đồng bộ) nên tự theo proxy USE_PROXY / CRAWL_PROXY;
+API token cũng đi qua proxy đó.
 
 Mọi thứ liên quan đến API nằm trong file này: đổi API thì chỉ sửa ở đây.
 
 Kết quả:
     - Có số: trả về chuỗi số, lưu cache Redis (PHONE_CACHE_TTL_HOURS).
     - Không có số / lỗi mạng / lỗi HTTP khác: trả về None, tin vẫn được gửi với phone = null.
-    - 401/403 (token hết hạn hoặc sai): raise PhoneAuthError → spider dừng và báo lỗi.
+    - Token hết hạn (quá exp, hoặc API phone trả 401/403): tạm dừng spider, đợi PHONE_TOKEN_RETRY_DELAY
+      giây rồi lấy token mới, thử tối đa PHONE_TOKEN_MAX_RETRIES lần. Hết số lần → dừng spider.
 """
 
+import asyncio
+import base64
 import json
 import logging
+import time
 
+import requests
 import scrapy
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from w3lib.url import add_or_replace_parameter
 
 from chotot.utils.redis_client import get_redis
-
-import base64
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 AUTH_ERROR_CODES = (401, 403)
 DEFAULT_URL = "https://gateway.chotot.com/v1/private/ad-listing/phone"
@@ -35,6 +46,7 @@ DEFAULT_HEADERS = {
     "Origin": "https://www.chotot.com",
     "Referer": "https://www.chotot.com/",
 }
+TOKEN_KEY_HEADER = "X-Session-Keeper-Key"
 
 PROD_PUBKEY = b"""-----BEGIN PUBLIC KEY-----
 MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAxnvPjlA/K/adq6mA6+uU
@@ -54,11 +66,21 @@ logger = logging.getLogger(__name__)
 
 
 class PhoneAuthError(Exception):
-    """Token API phone hết hạn hoặc không hợp lệ (HTTP 401/403)."""
+    """API phone trả 401/403: token hết hạn hoặc không hợp lệ."""
+
+    def __init__(self, message, generation=None):
+        super().__init__(message)
+        self.generation = generation
+
+
+class PhoneTokenError(Exception):
+    """Không lấy được token hợp lệ từ API token."""
+
 
 def make_e(ad_id: str) -> str:
     ct = _key.encrypt(str(ad_id).encode(), padding.PKCS1v15())
     return base64.b64encode(ct).decode()
+
 
 def cache_key(site, ad_id):
     return f"phone:{site}:{ad_id}"
@@ -71,14 +93,155 @@ def clean_phone(value):
     return phone or None
 
 
+def _default_log(level, message):
+    getattr(logger, level.lower())(message)
+
+
+class TokenProvider:
+    """Giữ token API phone, lấy lại khi hết hạn.
+
+    generation tăng mỗi lần có token mới: request API phone ghi lại generation đã dùng,
+    nhờ đó 401/403 của request dùng token cũ chỉ cần gửi lại, không phải lấy token lần nữa.
+
+    failures đếm số lần thử lấy token kể từ lần gọi API phone thành công gần nhất
+    (lấy token lỗi, hoặc token mới vẫn bị 401/403). Đạt max_retries → hỏng hẳn.
+    """
+
+    def __init__(self, url, key, proxy=None, timeout=15, retry_delay=60, max_retries=3,
+                 log=None, on_pause=None, on_resume=None, stats=None):
+        if not url or not key:
+            raise ValueError("PHONE_API_ENABLED=true cần PHONE_TOKEN_API_URL và PHONE_TOKEN_API_KEY trong .env")
+        self.url = url
+        self.key = key
+        self.proxy = proxy or None
+        self.timeout = timeout
+        self.retry_delay = max(0.0, float(retry_delay))
+        self.max_retries = max(1, int(max_retries))
+        self.log = log or _default_log
+        self.on_pause = on_pause
+        self.on_resume = on_resume
+        self.stats = stats  # callable trả về Scrapy stats (hoặc None)
+
+        self.token = None
+        self.exp = None
+        self.generation = 0
+        self.failures = 0
+        self.failed = False
+        self._task = None
+
+    def _inc(self, name):
+        stats = self.stats() if self.stats else None
+        if stats:
+            stats.inc_value(f"phone_token/{name}")
+
+    # ----------------------------------------------------------------- lấy token
+
+    def fetch(self):
+        """Gọi API token (đồng bộ). Thành công thì lưu token; lỗi thì raise PhoneTokenError."""
+        proxies = {"http": self.proxy, "https": self.proxy} if self.proxy else None
+        try:
+            res = requests.get(
+                self.url,
+                headers={TOKEN_KEY_HEADER: self.key, "Accept": "application/json"},
+                proxies=proxies,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as e:
+            self._inc("error")
+            raise PhoneTokenError(f"không gọi được API token: {e}") from e
+
+        if res.status_code != 200:
+            self._inc("error")
+            raise PhoneTokenError(f"API token trả về HTTP {res.status_code}: {res.text[:200]}")
+        try:
+            data = res.json()
+        except ValueError:
+            self._inc("error")
+            raise PhoneTokenError(f"API token trả về không phải JSON: {res.text[:200]!r}") from None
+
+        token = data.get("token") if isinstance(data, dict) else None
+        if not isinstance(token, str) or not token.strip():
+            self._inc("error")
+            raise PhoneTokenError("API token trả về token rỗng")
+
+        exp = data.get("exp")
+        try:
+            exp = int(exp) if exp not in (None, "") else None
+        except (TypeError, ValueError):
+            exp = None
+        if exp is not None and exp <= time.time():
+            self._inc("error")
+            raise PhoneTokenError(f"API token trả về token đã hết hạn (exp={exp})")
+
+        self.token = token.strip()
+        self.exp = exp
+        self.generation += 1
+        self._inc("ok")
+        self.log("INFO", f"Đã lấy token API phone, hết hạn lúc {self._fmt_exp()}")
+
+    def _fmt_exp(self):
+        if self.exp is None:
+            return "không rõ"
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.exp))
+
+    def is_expired(self):
+        return self.exp is not None and time.time() >= self.exp
+
+    def mark_ok(self):
+        """API phone chấp nhận token: reset bộ đếm số lần thử."""
+        self.failures = 0
+
+    # ------------------------------------------------------------- làm mới token
+
+    async def renew(self, failed_generation=None):
+        """Lấy token mới khi token hiện tại hết hạn / bị 401-403. Trả về True nếu đã có token dùng được.
+
+        failed_generation: generation của token vừa bị từ chối. Nếu token đã được thay
+        (generation khác) thì không lấy lại, chỉ cần gửi lại request.
+        Nhiều callback gọi cùng lúc thì dùng chung 1 lượt làm mới.
+        """
+        if self.failed:
+            return False
+        if failed_generation is not None and failed_generation != self.generation and self._task is None:
+            return True
+        if self._task is None:
+            self._task = asyncio.ensure_future(self._renew_loop())
+        return await asyncio.shield(self._task)
+
+    async def _renew_loop(self):
+        self._inc("renew")
+        if self.on_pause:
+            self.on_pause()
+        try:
+            while self.failures < self.max_retries:
+                self.failures += 1
+                self.log(
+                    "WARNING",
+                    f"Token API phone hết hạn hoặc bị từ chối. Tạm dừng spider, đợi {self.retry_delay:g}s rồi lấy "
+                    f"token mới (lần {self.failures}/{self.max_retries})",
+                )
+                await asyncio.sleep(self.retry_delay)
+                try:
+                    await asyncio.to_thread(self.fetch)
+                    return True
+                except PhoneTokenError as e:
+                    self.log("WARNING", f"Lấy token lần {self.failures}/{self.max_retries} thất bại: {e}")
+            self.failed = True
+            self.log(
+                "ERROR",
+                f"Không lấy được token API phone hợp lệ sau {self.max_retries} lần thử. Dừng spider",
+            )
+            return False
+        finally:
+            self._task = None
+            if self.on_resume:
+                self.on_resume()
 
 
 class PhoneApi:
-    def __init__(self, url, token, timeout=15, cache_ttl_hours=0, crawler=None):
-        if not token:
-            raise ValueError("PHONE_API_ENABLED=true cần PHONE_API_TOKEN trong .env")
+    def __init__(self, url, token_provider, timeout=15, cache_ttl_hours=0, crawler=None):
         self.url = url or DEFAULT_URL
-        self.token = token
+        self.tokens = token_provider
         self.timeout = timeout
         self.cache_ttl = max(0, int(cache_ttl_hours)) * 3600
         # Giữ crawler, không lấy crawler.stats ngay: từ Scrapy 2.19, stats chưa có
@@ -93,22 +256,51 @@ class PhoneApi:
             return None
 
     @classmethod
-    def from_crawler(cls, crawler):
-        """Trả về None nếu PHONE_API_ENABLED=false."""
+    def from_crawler(cls, crawler, proxy=None, log=None):
+        """Trả về None nếu PHONE_API_ENABLED=false.
+
+        proxy: proxy của spider (USE_PROXY / CRAWL_PROXY hoặc -a proxy), dùng cho API token.
+        log: hàm log(level, message), spider truyền vào để log có tag [HYDRA-MONITOR].
+        """
         s = crawler.settings
         if not s.getbool("PHONE_API_ENABLED", True):
             return None
-        return cls(
+        api = cls(
             url=s.get("PHONE_API_URL"),
-            token=s.get("PHONE_API_TOKEN"),
+            token_provider=None,
             timeout=s.getint("PHONE_API_TIMEOUT", 15),
             cache_ttl_hours=s.getint("PHONE_CACHE_TTL_HOURS", 0),
             crawler=crawler,
         )
+        api.tokens = TokenProvider(
+            url=s.get("PHONE_TOKEN_API_URL"),
+            key=s.get("PHONE_TOKEN_API_KEY"),
+            proxy=proxy,
+            timeout=s.getint("PHONE_API_TIMEOUT", 15),
+            retry_delay=s.getfloat("PHONE_TOKEN_RETRY_DELAY", 60),
+            max_retries=s.getint("PHONE_TOKEN_MAX_RETRIES", 3),
+            log=log,
+            on_pause=lambda: crawler.engine.pause(),
+            on_resume=lambda: crawler.engine.unpause(),
+            stats=lambda: api.stats,
+        )
+        return api
 
     def _inc(self, name):
         if self.stats:
             self.stats.inc_value(f"phone_api/{name}")
+
+    # --------------------------------------------------------------- token
+
+    def init_token(self):
+        """Lấy token lúc khởi động (1 lần). Lỗi thì raise PhoneTokenError."""
+        self.tokens.fetch()
+
+    def token_expired(self):
+        return self.tokens.is_expired()
+
+    async def renew_token(self, failed_generation=None):
+        return await self.tokens.renew(failed_generation)
 
     # --------------------------------------------------------------- cache
 
@@ -138,13 +330,14 @@ class PhoneApi:
         meta = dict(meta or {})
         meta.update(
             phone_ad_id=str(ad_id),
+            phone_token_gen=self.tokens.generation,
             download_timeout=self.timeout,
             handle_httpstatus_all=True,  # tự xử lý 401/403/404 trong callback
         )
         self._inc("request")
         return scrapy.Request(
             add_or_replace_parameter(self.url, "e", str(make_e(ad_id))),
-            headers={**DEFAULT_HEADERS, "Authorization": f"Bearer {self.token}"},
+            headers={**DEFAULT_HEADERS, "Authorization": f"Bearer {self.tokens.token}"},
             callback=callback,
             errback=errback,
             meta=meta,
@@ -158,7 +351,12 @@ class PhoneApi:
 
         if status in AUTH_ERROR_CODES:
             self._inc(f"http_{status}")
-            raise PhoneAuthError(f"HTTP {status}: {response.text[:200]}")
+            raise PhoneAuthError(
+                f"HTTP {status}: {response.text[:200]}",
+                generation=response.meta.get("phone_token_gen"),
+            )
+
+        self.tokens.mark_ok()  # token được chấp nhận
 
         if status != 200:
             self._inc(f"http_{status}")
